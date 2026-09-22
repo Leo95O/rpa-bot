@@ -1,0 +1,22 @@
+{
+  "name": "logisticaview-rpa-bot",
+  "version": "1.0.0",
+  "description": "Bot RPA atendido (Playwright + CDP) para crear Insumos y registrar Compras en logisticaview",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test:e2e": "ts-node src/test-e2e.ts"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "mysql2": "^3.24.4",
+    "playwright": "^1.47.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}
