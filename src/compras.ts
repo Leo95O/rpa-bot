@@ -16,6 +16,10 @@ export interface ParamDetalleCompra {
   cantidad: number;
   precio: number;
   presentacion?: string;
+  /** false = exonerado/inafecto (detallecompra_afectoimpuestos=0). Default true. */
+  afectoIgv?: boolean;
+  /** true = tras registrar, audita precio_sin_imp/subtotal contra detallecompra. */
+  verificarSinImpuestos?: boolean;
 }
 
 /**
@@ -123,14 +127,22 @@ export async function registrarCompra(page: Page, p: ParamCompra): Promise<Resul
       cantidad: d.cantidad,
       precio: d.precio,
       descuento: 0,
-      afectoIgv: true,
+      afectoIgv: d.afectoIgv !== false,
       presentacion: d.presentacion,
     })),
   };
 
   const r = await registrarCompraCore(page, compra);
-  if (r.ok) return { ok: true, id: r.idGenerado };
-  return { ok: false, error: r.error };
+  if (!r.ok) return { ok: false, error: r.error };
+  // Auditoría estricta de desgravación por detalle marcado (punto 2 del requerimiento).
+  for (const d of p.detalle) {
+    if (!d.verificarSinImpuestos || r.idGenerado === undefined || d.insumoId === undefined) continue;
+    const { assertDetalleCompraSinImpuestos } = await import('./e2e/oracle');
+    const a = await assertDetalleCompraSinImpuestos(
+      r.idGenerado, d.insumoId, d.precio, d.cantidad, d.afectoIgv !== false);
+    if (!a.ok) return { ok: false, id: r.idGenerado, error: a.paso + ': ' + (a.error || '') + ' | ' + (a.real || '') };
+  }
+  return { ok: true, id: r.idGenerado };
 }
 
 export async function consultarCompra(page: Page, id: number): Promise<{ ok: boolean; data?: any; error?: string }> {

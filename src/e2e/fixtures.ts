@@ -23,6 +23,7 @@ export const QA = {
 /** IDs generados durante la corrida; cada spec los arrastra al siguiente. */
 export interface EstadoSuite {
   insumoId?: number;
+  exoneradoId?: number;
   solicitudId?: number;
   ordenCompraId?: number;
   compra1?: number;
@@ -104,3 +105,59 @@ export function ppp(stockAnt: number, costoAnt: number, cant: number, costo: num
   if (den <= 0) return 0;
   return (stockAnt * costoAnt + cant * costo) / den;
 }
+
+/**
+ * Divisor de desgravación, leído de la BD al inicio de la suite (no hardcodeado):
+ * `igv` con fiscalizado=1 del local 1 (Igv::getIgvFiscalizado), fallback 18
+ * (mismo default del backend). Refleja CalculoLogistica.php:144.
+ */
+import mysql from 'mysql2/promise';
+
+let divisorIgv = 1.18;
+
+export function getDivisorIgv(): number {
+  return divisorIgv;
+}
+
+export async function cargarIgvFiscalizado(): Promise<number> {
+  const conn = await mysql.createConnection({
+    host: process.env.DB_HOST || 'localhost',
+    port: Number(process.env.DB_PORT) || 3306,
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'logisticaaa',
+  });
+  try {
+    const [rows] = await conn.query(
+      'SELECT igv_porcentajeigv AS pct FROM igv WHERE igv_fiscalizado = 1 AND local_id = 1 LIMIT 1',
+    );
+    const list = rows as Array<{ pct: number }>;
+    let pct = 18;
+    if (list.length && Number(list[0].pct) > 0) pct = Number(list[0].pct);
+    if (pct === 10) pct = 18; // mismo forzado del backend (getPorcentajeIgvFiscalizadoCompra)
+    divisorIgv = Math.round((1 + pct / 100) * 1000) / 1000;
+  } catch {
+    divisorIgv = 1.18;
+  } finally {
+    await conn.end();
+  }
+  return divisorIgv;
+}
+
+/** PPP sin impuestos: misma fórmula, vía paralela (precisión 3 decimales). */
+export function pppSin(stockAnt: number, costoSinAnt: number, cant: number, costoSin: number): number {
+  const v = ppp(stockAnt, costoSinAnt, cant, costoSin);
+  return Math.round(v * 1000) / 1000;
+}
+
+/** Desgravación unitaria esperada (afecto=true) o identidad (exonerado). */
+export function precioSin(precioCon: number, afecto: boolean): number {
+  const v = afecto ? precioCon / getDivisorIgv() : precioCon;
+  return Math.round(v * 1000) / 1000;
+}
+
+// Insumo de contraste sin impuestos (exonerado): costo con y sin impuestos idénticos.
+export const QA_EXONERADO = {
+  nombre: 'Insumo Exonerado QA',
+  compra: { cantidad: 10, precio: 10 },
+} as const;

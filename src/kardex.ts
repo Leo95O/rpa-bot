@@ -5,8 +5,8 @@ declare const angular: any;
 export interface ResultadoValidacion {
   paso: string;
   ok: boolean;
-  esperado: { cantidad: number; costo: number };
-  real: { stock: number; costo: number } | null;
+  esperado: { cantidad: number; costo: number; costoSinImp?: number };
+  real: { stock: number; costo: number; costoSinImp?: number } | null;
   error?: string;
 }
 
@@ -50,7 +50,7 @@ export async function buscarInsumo(page: Page, nombre: string): Promise<{ id: nu
 async function leerStockYCosto(
   page: Page,
   nombre: string,
-): Promise<{ nombre: string; id: number; stock: number; costo: number }> {
+): Promise<{ nombre: string; id: number; stock: number; costo: number; costoSinImp: number }> {
   return page.evaluate(async (nombre) => {
     const injector = angular.element(document.body).injector();
     const CommonCollection = injector.get('CommonCollection');
@@ -78,6 +78,7 @@ async function leerStockYCosto(
 
     let stock = 0;
     let costo = 0;
+    let costoSinImp = 0;
     if (principal) {
       stock = Number(principal.stock || 0);
       const cs = principal.costoStock;
@@ -87,9 +88,14 @@ async function leerStockYCosto(
       if (costo === 0 && cs && Number(cs.costopromedio || 0) > 0) {
         costo = Number(cs.costopromedio);
       }
+      // PPP sin impuestos en paralelo (getStockCosto[].costosinimpuesto;
+      // InsumoLogistica.php:2388). Para exonerados coincide con el costo.
+      if (cs && cs.costosinimpuesto !== undefined && cs.costosinimpuesto !== null) {
+        costoSinImp = Math.round(Number(cs.costosinimpuesto) * 1000) / 1000;
+      }
     }
 
-    return { nombre: item.item_descripcion, id: Number(item.item_id), stock, costo };
+    return { nombre: item.item_descripcion, id: Number(item.item_id), stock, costo, costoSinImp };
   }, nombre);
 }
 
@@ -98,9 +104,10 @@ export async function validarStock(
   nombre: string,
   cantidad: number,
   costo: number,
+  costoSinImp?: number,
 ): Promise<ResultadoValidacion> {
   const paso = 'validarStock("' + nombre + '")';
-  const esperado = { cantidad, costo };
+  const esperado = { cantidad, costo, costoSinImp };
   try {
     // El stock puede tardar un digest/movimiento en asentarse tras
     // actualizarCompra: reintentar ante lecturas 0/0 transitorias.
@@ -109,8 +116,11 @@ export async function validarStock(
       await page.waitForTimeout(2000);
       r = await leerStockYCosto(page, nombre);
     }
-    const real = { stock: r.stock, costo: r.costo };
-    const ok = Math.abs(real.stock - cantidad) < TOLERANCIA && Math.abs(real.costo - costo) < TOLERANCIA;
+    const real = { stock: r.stock, costo: r.costo, costoSinImp: r.costoSinImp };
+    let ok = Math.abs(real.stock - cantidad) < TOLERANCIA && Math.abs(real.costo - costo) < TOLERANCIA;
+    if (ok && costoSinImp !== undefined) {
+      ok = Math.abs((real.costoSinImp || 0) - costoSinImp) < TOLERANCIA;
+    }
     return {
       paso,
       ok,

@@ -9,7 +9,7 @@
 import { Page } from 'playwright';
 import mysql from 'mysql2/promise';
 import { validarStock } from '../kardex';
-import { TOLERANCIA } from './fixtures';
+import { TOLERANCIA, getDivisorIgv } from './fixtures';
 
 declare const angular: any;
 
@@ -29,19 +29,26 @@ const DB = {
   database: process.env.DB_NAME || 'logisticaaa',
 };
 
-/** Oráculo para insumos normales: stock + PPP vía endpoint autoritativo. */
+/** Formato de log con costo sin impuestos (punto 3 del requerimiento). */
+export function fmtStock(stock: number, costo: number, costoSinImp?: number): string {
+  const base = 'stock=' + stock + '; costo=' + costo;
+  return costoSinImp === undefined ? base : base + '; costo_sin_imp=' + costoSinImp;
+}
+
+/** Oráculo para insumos normales: stock + PPP (+PPP sin impuestos) vía endpoint autoritativo. */
 export async function assertStockInsumo(
   page: Page,
   nombre: string,
   esperadoStock: number,
   esperadoCosto: number,
+  esperadoSinImp?: number,
 ): Promise<Veredicto> {
-  const r = await validarStock(page, nombre, esperadoStock, esperadoCosto);
+  const r = await validarStock(page, nombre, esperadoStock, esperadoCosto, esperadoSinImp);
   return {
     paso: r.paso,
     ok: r.ok,
-    esperado: 'stock=' + r.esperado.cantidad + '; costo=' + r.esperado.costo,
-    real: r.real ? 'stock=' + r.real.stock + '; costo=' + r.real.costo : undefined,
+    esperado: fmtStock(r.esperado.cantidad, r.esperado.costo, r.esperado.costoSinImp),
+    real: r.real ? fmtStock(r.real.stock, r.real.costo, r.real.costoSinImp) : undefined,
     error: r.error,
   };
 }
@@ -56,11 +63,12 @@ export async function assertStockInsumoEnAlmacen(
   almacenDesc: string,
   esperadoStock: number,
   esperadoCosto: number,
+  esperadoSinImp?: number,
 ): Promise<Veredicto> {
   const paso = 'validarStock("' + nombre + '" @ ' + almacenDesc + ')';
-  const esperado = 'stock=' + esperadoStock + '; costo=' + esperadoCosto;
+  const esperado = fmtStock(esperadoStock, esperadoCosto, esperadoSinImp);
   try {
-    const r: { stock: number; costo: number } | null = await page.evaluate(async (args) => {
+    const r: { stock: number; costo: number; costoSinImp: number } | null = await page.evaluate(async (args) => {
       try {
         const injector = angular.element(document.body).injector();
         const CommonCollection = injector.get('CommonCollection');
@@ -81,15 +89,21 @@ export async function assertStockInsumoEnAlmacen(
         const almacenes = (sr && sr.data) || [];
         const alm = almacenes.find((a: any) =>
           String(a.almacen_descripcion || '').toLowerCase().indexOf(String(args.almacen).toLowerCase()) >= 0);
-        if (!alm) return { stock: 0, costo: 0 };
-        return { stock: Number(alm.stock || 0), costo: Number(alm.costo || 0) };
+        if (!alm) return { stock: 0, costo: 0, costoSinImp: 0 };
+        const cs = alm.costoStock || {};
+        const sin = cs.costosinimpuesto !== undefined && cs.costosinimpuesto !== null
+          ? Math.round(Number(cs.costosinimpuesto) * 1000) / 1000 : 0;
+        return { stock: Number(alm.stock || 0), costo: Number(alm.costo || 0), costoSinImp: sin };
       } catch {
         return null;
       }
     }, { nombre, almacen: almacenDesc });
     if (!r) return { paso, ok: false, esperado, error: 'Insumo o lectura nula.' };
-    const real = 'stock=' + r.stock + '; costo=' + r.costo;
-    const ok = Math.abs(r.stock - esperadoStock) < TOLERANCIA && Math.abs(r.costo - esperadoCosto) < TOLERANCIA;
+    const real = fmtStock(r.stock, r.costo, r.costoSinImp);
+    let ok = Math.abs(r.stock - esperadoStock) < TOLERANCIA && Math.abs(r.costo - esperadoCosto) < TOLERANCIA;
+    if (ok && esperadoSinImp !== undefined) {
+      ok = Math.abs((r.costoSinImp || 0) - esperadoSinImp) < TOLERANCIA;
+    }
     return { paso, ok, esperado, real, error: ok ? undefined : 'Divergencia (esperado vs real).' };
   } catch (e) {
     return { paso, ok: false, esperado, error: e instanceof Error ? e.message : String(e) };
@@ -105,32 +119,35 @@ export async function assertStockInsumoEnAlmacen(
 export async function leerStockConsumible(
   insumoId: number,
   almacenId: number,
-): Promise<{ stock: number; costo: number } | null> {
+): Promise<{ stock: number; costo: number; costoSinImp: number } | null> {
   const conn = await mysql.createConnection(DB);
   try {
     const [rows] = await conn.query(
       'SELECT movimientoalmacenconsumible_tipo AS tipo, ' +
         'movimientoalmacenconsumible_cantidad AS cant, ' +
-        'movimientoalmacenconsumible_costopromedioactual AS ppp ' +
+        'movimientoalmacenconsumible_costopromedioactual AS ppp, ' +
+        'movimientoalmacenconsumible_costopromediosinimpuesto AS pppSin ' +
         'FROM movimientoalmacenconsumible ' +
         "WHERE insumo_id = ? AND almacen_id = ? AND (movimientoalmacenconsumible_fueeliminado IS NULL OR movimientoalmacenconsumible_fueeliminado != '1') " +
         'ORDER BY movimientoalmacenconsumible_id ASC',
       [insumoId, almacenId],
     );
-    const list = rows as Array<{ tipo: number; cant: number; ppp: number }>;
+    const list = rows as Array<{ tipo: number; cant: number; ppp: number; pppSin: number }>;
     if (!list.length) return null;
     let stock = 0;
     let costo = 0;
+    let costoSinImp = 0;
     for (const m of list) {
       const cant = Number(m.cant || 0);
       if (Number(m.tipo) === 1) {
         stock += cant;
         costo = Number(m.ppp || 0);
+        costoSinImp = Math.round(Number(m.pppSin || 0) * 1000) / 1000;
       } else {
         stock -= cant;
       }
     }
-    return { stock: Math.round(stock * 1000) / 1000, costo };
+    return { stock: Math.round(stock * 1000) / 1000, costo, costoSinImp };
   } finally {
     await conn.end();
   }
@@ -143,9 +160,10 @@ export async function assertStockConsumible(
   almacenId: number,
   esperadoStock: number,
   esperadoCosto: number,
+  esperadoSinImp?: number,
 ): Promise<Veredicto> {
   const paso = 'validarStockConsumible("' + nombre + '")';
-  const esperado = 'stock=' + esperadoStock + '; costo=' + esperadoCosto;
+  const esperado = fmtStock(esperadoStock, esperadoCosto, esperadoSinImp);
   try {
     const r = await leerStockConsumible(insumoId, almacenId);
     // Sin movimientos y esperado 0/0 (alta fresca): el espejo vacío ES el cero.
@@ -153,11 +171,101 @@ export async function assertStockConsumible(
       const ok = esperadoStock === 0 && esperadoCosto === 0;
       return { paso, ok, esperado, real: 'sin movimientos (0/0)', error: ok ? undefined : 'Sin movimientos en tabla espejo.' };
     }
-    const real = 'stock=' + r.stock + '; costo=' + r.costo;
-    const ok =
+    const real = fmtStock(r.stock, r.costo, r.costoSinImp);
+    let ok =
       Math.abs(r.stock - esperadoStock) < TOLERANCIA && Math.abs(r.costo - esperadoCosto) < TOLERANCIA;
+    if (ok && esperadoSinImp !== undefined) {
+      ok = Math.abs((r.costoSinImp || 0) - esperadoSinImp) < TOLERANCIA;
+    }
     return { paso, ok, esperado, real, error: ok ? undefined : 'Divergencia (esperado vs real).' };
   } catch (e) {
     return { paso, ok: false, esperado, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Auditoría transaccional del detalle persistido (punto 2 del requerimiento):
+ * lee detallecompra_costosinimpuestos / costo / cantidad / importe tal como los
+ * guardó el ERP y los compara contra la matemática esperada.
+ * Afecto: precioSin = precio/divisorIgv (fiscalizado, leído de BD),
+ * subtotalSin = precioSin*cantidad. Exonerado: precioSin = precio.
+ */
+export async function assertDetalleCompraSinImpuestos(
+  compraId: number,
+  insumoId: number,
+  precio: number,
+  cantidad: number,
+  afecto: boolean,
+): Promise<Veredicto> {
+  const paso = 'auditarDetalleSinImp(compra=' + compraId + ')';
+  const precioSin = afecto
+    ? Math.round((precio / getDivisorIgv()) * 1000) / 1000
+    : precio;
+  const subtotalSin = Math.round(precioSin * cantidad * 1000) / 1000;
+  const esperado = 'precio_sin_imp=' + precioSin + '; subtotal_sin_imp=' + subtotalSin;
+  const conn = await mysql.createConnection(DB);
+  try {
+    const [rows] = await conn.query(
+      'SELECT d.detallecompra_costo AS costo, d.detallecompra_costosinimpuestos AS costoSin, ' +
+        'd.detallecompra_cantidad AS cant, d.detallecompra_importe AS importe, ' +
+        'd.detallecompra_afectoimpuestos AS afecto ' +
+        'FROM detallecompra d INNER JOIN presentacioninsumo p ' +
+        'ON p.presentacioninsumo_id = d.presentacioninsumo_id ' +
+        'WHERE d.compra_id = ? AND p.insumo_id = ? ' +
+        'ORDER BY d.detallecompra_id DESC LIMIT 1',
+      [compraId, insumoId],
+    );
+    const list = rows as Array<{ costo: number; costoSin: number; cant: number; importe: number; afecto: string }>;
+    if (!list.length) return { paso, ok: false, esperado, error: 'Detalle no encontrado en BD.' };
+    const det = list[0];
+    const real = 'precio_sin_imp=' + Number(det.costoSin) + '; subtotal_sin_imp=' +
+      Math.round(Number(det.costoSin) * Number(det.cant) * 1000) / 1000;
+    const okCosto = Math.abs(Number(det.costo) - precio) < TOLERANCIA;
+    const okSin = Math.abs(Number(det.costoSin) - precioSin) < TOLERANCIA;
+    const okSub = Math.abs(Number(det.costoSin) * Number(det.cant) - subtotalSin) < TOLERANCIA;
+    const ok = okCosto && okSin && okSub;
+    return { paso, ok, esperado, real, error: ok ? undefined : 'Desgravación incorrecta (costo/sin/subtotal).' };
+  } catch (e) {
+    return { paso, ok: false, esperado, error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    await conn.end();
+  }
+}
+
+/**
+ * Coherencia del detalle de OC persistido (verificado por SQL):
+ * `detalleordencompra_precio` guarda el IMPORTE (precio*cantidad) y
+ * `preciosinimpuestos` queda NULL (la OC pacta, no desgrava: la desgravación
+ * ocurre en la Compra). Se audita importe + cantidad + nulidad del sin-imp.
+ */
+export async function assertDetalleOC(
+  ordenCompraId: number,
+  precio: number,
+  cantidad: number,
+): Promise<Veredicto> {
+  const paso = 'auditarDetalleOC(oc=' + ordenCompraId + ')';
+  const importe = Math.round(precio * cantidad * 1000) / 1000;
+  const esperado = 'importe=' + importe + '; precio_sin_imp=N/A (la OC no desgrava)';
+  const conn = await mysql.createConnection(DB);
+  try {
+    const [rows] = await conn.query(
+      'SELECT detalleordencompra_precio AS precio, detalleordencompra_cantidad AS cant, ' +
+        'detalleordencompra_preciosinimpuestos AS precioSin ' +
+        'FROM detalleordencompra WHERE ordencompra_id = ? ' +
+        'ORDER BY detalleordencompra_id DESC LIMIT 1',
+      [ordenCompraId],
+    );
+    const list = rows as Array<{ precio: number; cant: number; precioSin: number | null }>;
+    if (!list.length) return { paso, ok: false, esperado, error: 'Detalle OC no encontrado.' };
+    const det = list[0];
+    const real = 'importe=' + Number(det.precio) + '; precio_sin_imp=' + (det.precioSin === null ? 'NULL' : Number(det.precioSin));
+    const ok = Math.abs(Number(det.precio) - importe) < TOLERANCIA &&
+      Math.abs(Number(det.cant) - cantidad) < TOLERANCIA &&
+      det.precioSin === null;
+    return { paso, ok, esperado, real, error: ok ? undefined : 'Detalle OC incoherente.' };
+  } catch (e) {
+    return { paso, ok: false, esperado, error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    await conn.end();
   }
 }

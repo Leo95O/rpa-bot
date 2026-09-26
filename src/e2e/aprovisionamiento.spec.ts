@@ -8,7 +8,7 @@ import { crearInsumo, navegar, esperarEndpoint, leerRespuesta, cerrarModales } f
 import { registrarCompra, anularCompra, registrarNotaCredito } from '../compras';
 import { obtenerEstadoGlobal } from '../kardex';
 import { FilaReporte } from '../types';
-import { QA, EstadoSuite, ppp } from './fixtures';
+import { QA, QA_EXONERADO, EstadoSuite, ppp, pppSin, precioSin } from './fixtures';
 import { assertStockInsumo } from './oracle';
 import { generarHtmlReporte, generarPdfReporte, resumirReporte } from '../reporte';
 import { logFila, logVeredicto, abrirStandalone, diag, DEBUG } from './harness';
@@ -213,9 +213,16 @@ export async function registrarOrdenCompra(page: Page, nombre: string, insumoId:
   try {
     const resp = await endpoint;
     const net = await leerRespuesta(resp);
-    diag('[DIAG OrdenCompra] red=' + JSON.stringify(net.json));
+    console.log('[DIAG OrdenCompra] red=' + JSON.stringify(net.json));
   } catch (e) {
-    diag('[DIAG OrdenCompra] sin respuesta de red (timeout?): ' + String(e));
+    console.log('[DIAG OrdenCompra] sin respuesta de red (timeout?): ' + String(e));
+  }
+  // Auditoría estricta del detalle OC persistido (precio/cantidad/desgravación).
+  if (r.ok && r.id !== undefined) {
+    const { assertDetalleOC } = await import('./oracle');
+    const a = await assertDetalleOC(r.id, costo, cantidad);
+    console.log('[DIAG OrdenCompra-auditoria] ' + JSON.stringify({ ok: a.ok, error: a.error, real: a.real }));
+    if (!a.ok) return { ok: false, error: a.paso + ': ' + (a.error || '') + ' | ' + (a.real || '') };
   }
   return r;
 }
@@ -328,7 +335,7 @@ export async function runBloque1(page: Page, estado: EstadoSuite, reporte: FilaR
     if (r.ok) estado.insumoId = r.id;
   } catch (e) { log({ fase: F, paso: "1. crearInsumo('Carne QA')", ok: false, error: String(e) }); }
   try {
-    val(await assertStockInsumo(page, QA.insumoCarne, 0, 0));
+    val(await assertStockInsumo(page, QA.insumoCarne, 0, 0, 0));
   } catch (e) { log({ fase: F, paso: '1. validarStock inicial', ok: false, error: String(e) }); }
 
   // Caso 2: solicitud 50kg (documento de intención, sin movimiento).
@@ -337,7 +344,7 @@ export async function runBloque1(page: Page, estado: EstadoSuite, reporte: FilaR
     log({ fase: F, paso: '2. registrarSolicitud(50kg)', ok: r.ok, real: r.id !== undefined ? 'id=' + r.id : undefined, error: r.error });
     if (r.ok) estado.solicitudId = r.id;
   } catch (e) { log({ fase: F, paso: '2. registrarSolicitud', ok: false, error: String(e) }); }
-  try { val(await assertStockInsumo(page, QA.insumoCarne, 0, 0)); } catch (e) { log({ fase: F, paso: '2. validarStock sin cambio', ok: false, error: String(e) }); }
+  try { val(await assertStockInsumo(page, QA.insumoCarne, 0, 0, 0)); } catch (e) { log({ fase: F, paso: '2. validarStock sin cambio', ok: false, error: String(e) }); }
 
   // Caso 3: OC 50kg @20 (pacto, sin Kardex).
   try {
@@ -345,12 +352,15 @@ export async function runBloque1(page: Page, estado: EstadoSuite, reporte: FilaR
     log({ fase: F, paso: '3. registrarOC(50kg@20)', ok: r.ok, real: r.id !== undefined ? 'id=' + r.id : undefined, error: r.error });
     if (r.ok) estado.ordenCompraId = r.id;
   } catch (e) { log({ fase: F, paso: '3. registrarOC', ok: false, error: String(e) }); }
-  try { val(await assertStockInsumo(page, QA.insumoCarne, 0, 0)); } catch (e) { log({ fase: F, paso: '3. validarStock sin cambio', ok: false, error: String(e) }); }
+  try { val(await assertStockInsumo(page, QA.insumoCarne, 0, 0, 0)); } catch (e) { log({ fase: F, paso: '3. validarStock sin cambio', ok: false, error: String(e) }); }
 
   // Caso 4: compra canjeando la OC — 50@20. Primera entrada: PPP=20.
   // TODO(first-run): confirmar campo de canje compra->OC (se envía ordencompra_id por extra).
   // Referencia: el detalle backend se arma con vm.compra.obtenerFormatoDetalleCompraBackend()
   // (ver compras.ts: se regenera tras procesarDatosCompra); aquí solo se loguea el vínculo.
+  if (estado.ordenCompraId === undefined) {
+    log({ fase: F, paso: '4. registrarCompra canje OC (50@20)', ok: false, error: 'Bloqueado: sin OC del caso 3, no se envía canje [null].' });
+  } else
   try {
     const { registrarCompra: rc } = await import('../compras');
     // Vínculo compra->OC: el input debe traer `compra_ordencompraList[]`
@@ -358,12 +368,12 @@ export async function runBloque1(page: Page, estado: EstadoSuite, reporte: FilaR
     // actualizarOrdenesCompras() setea ordencompra.compra_id + PROCESADA
     // (:659-662, :1246-1260). Ni `ordencompra_id` ni `listaOrdenesCompra`
     // planos los lee el parser del backend.
-    const canje = { compra_ordencompraList: [estado.ordenCompraId!] };
+    const canje = { compra_ordencompraList: [estado.ordenCompraId] };
     diag('[DIAG CanjeOC] vínculo enviado por extra=' + JSON.stringify(canje) +
       ' | ocId=' + estado.ordenCompraId);
     const r = await rc(page, {
       serie: 'F001', numero: 'QA-1', proveedor: QA.proveedor,
-      detalle: [{ nombre: QA.insumoCarne, insumoId: estado.insumoId, cantidad: QA.compra1.cantidad, precio: QA.compra1.precio }],
+      detalle: [{ nombre: QA.insumoCarne, insumoId: estado.insumoId, cantidad: QA.compra1.cantidad, precio: QA.compra1.precio, verificarSinImpuestos: true }],
       estado: { extra: canje as never },
     });
     diag('[DIAG CanjeOC] resultado ok=' + r.ok + ' id=' + (r as { idGenerado?: number }).idGenerado +
@@ -390,45 +400,45 @@ export async function runBloque1(page: Page, estado: EstadoSuite, reporte: FilaR
     diag('[DIAG CanjeOC] excepción: ' + String(e));
     log({ fase: F, paso: '4. registrarCompra', ok: false, error: String(e) });
   }
-  try { val(await assertStockInsumo(page, QA.insumoCarne, 50, 20)); } catch (e) { log({ fase: F, paso: '4. validarStock', ok: false, error: String(e) }); }
+  try { val(await assertStockInsumo(page, QA.insumoCarne, 50, 20, precioSin(20, true))); } catch (e) { log({ fase: F, paso: '4. validarStock', ok: false, error: String(e) }); }
 
   // Caso 5: segunda compra 50@30 → PPP=(50*20+50*30)/100=25.
   const ppp5 = ppp(50, 20, QA.compra2.cantidad, QA.compra2.precio);
   try {
     const r = await registrarCompra(page, {
       serie: 'F001', numero: 'QA-2', proveedor: QA.proveedor,
-      detalle: [{ nombre: QA.insumoCarne, insumoId: estado.insumoId, cantidad: QA.compra2.cantidad, precio: QA.compra2.precio }],
+      detalle: [{ nombre: QA.insumoCarne, insumoId: estado.insumoId, cantidad: QA.compra2.cantidad, precio: QA.compra2.precio, verificarSinImpuestos: true }],
     });
     log({ fase: F, paso: '5. registrarCompra (50@30)', ok: r.ok, real: r.id !== undefined ? 'id=' + r.id : undefined, error: r.error });
     if (r.ok) estado.compra2 = r.id;
   } catch (e) { log({ fase: F, paso: '5. registrarCompra', ok: false, error: String(e) }); }
-  try { val(await assertStockInsumo(page, QA.insumoCarne, 100, ppp5)); } catch (e) { log({ fase: F, paso: '5. validarStock PPP=25', ok: false, error: String(e) }); }
+  try { val(await assertStockInsumo(page, QA.insumoCarne, 100, ppp5, pppSin(50, precioSin(20, true), QA.compra2.cantidad, precioSin(30, true)))); } catch (e) { log({ fase: F, paso: '5. validarStock PPP=25', ok: false, error: String(e) }); }
 
   // Caso 6: NC cantidad 10 sobre compra2 → resta, costo congelado en 25.
   try {
     const r = await registrarNotaCredito(page, estado.compra2!, [{ nombre: QA.insumoCarne, insumoId: estado.insumoId, cantidad: QA.ncDevolucion }]);
     log({ fase: F, paso: '6. notaCredito devuelve 10', ok: r.ok, real: r.id !== undefined ? 'id=' + r.id : undefined, error: r.error });
   } catch (e) { log({ fase: F, paso: '6. notaCredito', ok: false, error: String(e) }); }
-  try { val(await assertStockInsumo(page, QA.insumoCarne, 90, 25)); } catch (e) { log({ fase: F, paso: '6. validarStock 90/25', ok: false, error: String(e) }); }
+  try { val(await assertStockInsumo(page, QA.insumoCarne, 90, 25, pppSin(50, precioSin(20, true), QA.compra2.cantidad, precioSin(30, true)))); } catch (e) { log({ fase: F, paso: '6. validarStock 90/25', ok: false, error: String(e) }); }
 
   // Caso 7: tercera compra 20@50 → PPP=(90*25+20*50)/110=29.545.
   const ppp7 = ppp(90, 25, QA.compra3.cantidad, QA.compra3.precio);
   try {
     const r = await registrarCompra(page, {
       serie: 'F001', numero: 'QA-3', proveedor: QA.proveedor,
-      detalle: [{ nombre: QA.insumoCarne, insumoId: estado.insumoId, cantidad: QA.compra3.cantidad, precio: QA.compra3.precio }],
+      detalle: [{ nombre: QA.insumoCarne, insumoId: estado.insumoId, cantidad: QA.compra3.cantidad, precio: QA.compra3.precio, verificarSinImpuestos: true }],
     });
     log({ fase: F, paso: '7. registrarCompra (20@50)', ok: r.ok, real: r.id !== undefined ? 'id=' + r.id : undefined, error: r.error });
     if (r.ok) estado.compra3 = r.id;
   } catch (e) { log({ fase: F, paso: '7. registrarCompra', ok: false, error: String(e) }); }
-  try { val(await assertStockInsumo(page, QA.insumoCarne, 110, Math.round(ppp7 * 1000) / 1000)); } catch (e) { log({ fase: F, paso: '7. validarStock PPP=29.545', ok: false, error: String(e) }); }
+  try { val(await assertStockInsumo(page, QA.insumoCarne, 110, Math.round(ppp7 * 1000) / 1000, pppSin(90, pppSin(50, precioSin(20, true), QA.compra2.cantidad, precioSin(30, true)), QA.compra3.cantidad, precioSin(50, true)))); } catch (e) { log({ fase: F, paso: '7. validarStock PPP=29.545', ok: false, error: String(e) }); }
 
   // Caso 8: anular última (LIFO) → vuelve a 90/25.
   try {
     const r = await anularCompra(page, estado.compra3!, true);
     log({ fase: F, paso: '8. anularCompra(3) LIFO', ok: r.ok, error: r.error });
   } catch (e) { log({ fase: F, paso: '8. anularCompra', ok: false, error: String(e) }); }
-  try { val(await assertStockInsumo(page, QA.insumoCarne, 90, 25)); } catch (e) { log({ fase: F, paso: '8. validarStock 90/25', ok: false, error: String(e) }); }
+  try { val(await assertStockInsumo(page, QA.insumoCarne, 90, 25, pppSin(50, precioSin(20, true), QA.compra2.cantidad, precioSin(30, true)))); } catch (e) { log({ fase: F, paso: '8. validarStock 90/25', ok: false, error: String(e) }); }
 
   // Caso 9: negativa — anular OC con compra vigente debe BLOQUEARSE.
   try {
@@ -436,7 +446,23 @@ export async function runBloque1(page: Page, estado: EstadoSuite, reporte: FilaR
     const r = await anularOrdenCompra(page, estado.ordenCompraId!);
     log({ fase: F, paso: '9. anularOC con compra vigente (debe bloquear)', ok: r.ok, real: r.bloqueada ? 'bloqueada por el sistema' : undefined, error: r.bloqueada ? undefined : r.error });
   } catch (e) { log({ fase: F, paso: '9. anularOC', ok: false, error: String(e) }); }
-  try { val(await assertStockInsumo(page, QA.insumoCarne, 90, 25)); } catch (e) { log({ fase: F, paso: '9. validarStock sin cambio', ok: false, error: String(e) }); }
+  try { val(await assertStockInsumo(page, QA.insumoCarne, 90, 25, pppSin(50, precioSin(20, true), QA.compra2.cantidad, precioSin(30, true)))); } catch (e) { log({ fase: F, paso: '9. validarStock sin cambio', ok: false, error: String(e) }); }
+
+  // Casos 9A-9B: contraste sin impuestos (exonerado). Los existentes quedan afectos.
+  // Costo con y sin impuestos matemáticamente idénticos.
+  try {
+    const r = await crearInsumo(page, { nombre: QA_EXONERADO.nombre, stockApertura: 0, costoApertura: 0, almacen: QA.almacenCentral });
+    log({ fase: F, paso: "9A. crearInsumo('Exonerado QA') 0kg", ok: r.ok, real: r.id !== undefined ? 'id=' + r.id : undefined, error: r.error });
+    if (r.ok) estado.exoneradoId = r.id;
+  } catch (e) { log({ fase: F, paso: '9A. crearInsumo exonerado', ok: false, error: String(e) }); }
+  try {
+    const r = await registrarCompra(page, {
+      serie: 'F001', numero: 'QA-EX1', proveedor: QA.proveedor,
+      detalle: [{ nombre: QA_EXONERADO.nombre, insumoId: estado.exoneradoId, cantidad: QA_EXONERADO.compra.cantidad, precio: QA_EXONERADO.compra.precio, afectoIgv: false, verificarSinImpuestos: true }],
+    });
+    log({ fase: F, paso: '9B. compra exonerada (10@10 sin IGV)', ok: r.ok, real: r.id !== undefined ? 'id=' + r.id : undefined, error: r.error });
+  } catch (e) { log({ fase: F, paso: '9B. compra exonerada', ok: false, error: String(e) }); }
+  try { val(await assertStockInsumo(page, QA_EXONERADO.nombre, 10, 10, 10)); } catch (e) { log({ fase: F, paso: '9B. validarStock 10/10/10', ok: false, error: String(e) }); }
 
 }
 
