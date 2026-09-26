@@ -75,23 +75,38 @@ export async function crearOP(page: Page, insumoId: number, cantidad: number, al
   return r;
 }
 
-/** Recolecta valores numéricos bajo claves de faltante/producción en el JSON. */
+/**
+ * Faltantes reales: `obtenerParaAbastecer` devuelve la OP con `itemPorAbastecer[]`
+ * cuyos items llevan `item_cantidad` (NO claves *faltante*: esas solo existen en
+ * ToolInsumos internos). Se extrae esa lista con precisión en vez de escanear.
+ */
 function numerosFaltante(raw: unknown): number[] {
   const out: number[] = [];
   const walk = (n: unknown): void => {
     if (Array.isArray(n)) { n.forEach(walk); return; }
     if (n && typeof n === 'object') {
-      for (const [k, v] of Object.entries(n)) {
+      const rec = n as Record<string, unknown>;
+      if (Array.isArray(rec.itemPorAbastecer)) {
+        for (const it of rec.itemPorAbastecer as Array<Record<string, unknown>>) {
+          const num = Number(it.item_cantidad);
+          if (!Number.isNaN(num) && num > 0) {
+            out.push(num);
+            const id = Number(it.insumo_id ?? it.producto_id ?? 0);
+            if (id > 0) out.push(-id); // marcador de identidad (negativo para no confundir)
+          }
+        }
+      }
+      for (const [k, v] of Object.entries(rec)) {
         if (/faltante/i.test(k) || k === 'cantidadproducir') {
           const num = Number(v);
           if (!Number.isNaN(num) && num > 0) out.push(num);
         }
-        walk(v);
+        if (k !== 'itemPorAbastecer') walk(v);
       }
     }
   };
   walk(raw);
-  return out;
+  return out.filter((x) => x > 0);
 }
 
 async function evaluarFaltantes(page: Page, opId: number): Promise<{ ok: boolean; faltantes: number[]; error?: string; raw?: unknown }> {
@@ -109,7 +124,11 @@ async function evaluarFaltantes(page: Page, opId: number): Promise<{ ok: boolean
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }, { id: opId, almacenId: QA_TRASLADO.almacenSucursalId });
-  diag('[DIAG Faltantes] op=' + opId + ' ' + JSON.stringify(r).slice(0, 2000));
+  const rawObj = (r && (r as { raw?: unknown }).raw) || null;
+  const items = rawObj && typeof rawObj === 'object' && Array.isArray((rawObj as { itemPorAbastecer?: unknown[] }).itemPorAbastecer)
+    ? ((rawObj as { itemPorAbastecer: Array<{ insumo_id?: number; producto_id?: number; item_cantidad?: number }> }).itemPorAbastecer || [])
+      .map((it) => ({ id: it.insumo_id ?? it.producto_id, cant: it.item_cantidad })) : [];
+  diag('[DIAG Faltantes] op=' + opId + ' porAbastecer=' + JSON.stringify(items));
   try {
     const resp = await endpoint;
     await leerRespuesta(resp);
