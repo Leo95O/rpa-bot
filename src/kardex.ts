@@ -102,7 +102,13 @@ export async function validarStock(
   const paso = 'validarStock("' + nombre + '")';
   const esperado = { cantidad, costo };
   try {
-    const r = await leerStockYCosto(page, nombre);
+    // El stock puede tardar un digest/movimiento en asentarse tras
+    // actualizarCompra: reintentar ante lecturas 0/0 transitorias.
+    let r = await leerStockYCosto(page, nombre);
+    for (let i = 0; i < 3 && r.stock === 0 && r.costo === 0 && (cantidad !== 0 || costo !== 0); i++) {
+      await page.waitForTimeout(2000);
+      r = await leerStockYCosto(page, nombre);
+    }
     const real = { stock: r.stock, costo: r.costo };
     const ok = Math.abs(real.stock - cantidad) < TOLERANCIA && Math.abs(real.costo - costo) < TOLERANCIA;
     return {

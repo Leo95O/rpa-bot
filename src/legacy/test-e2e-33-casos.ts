@@ -7,18 +7,20 @@ import {
   consultarInsumo,
   agregarPresentacion,
   navegar,
-} from './bot';
+} from '../bot';
 import {
   registrarCompra,
   consultarCompra,
   modificarCompra,
   anularCompra,
   registrarNotaCredito,
-} from './compras';
-import { registrarGuia, consultarGuia, modificarGuia, anularGuia } from './guias';
-import { obtenerEstadoGlobal, validarStock } from './kardex';
-import { limpiarBaseDatos } from './db';
-import { FilaReporte } from './types';
+} from '../compras';
+import { registrarGuia, consultarGuia, modificarGuia, anularGuia } from '../guias';
+import { obtenerEstadoGlobal, validarStock } from '../kardex';
+import { limpiarBaseDatos } from '../db';
+import { generarHtmlReporte, generarPdfReporte, resumirReporte } from '../reporte';
+import { promises as fs } from 'fs';
+import { FilaReporte } from '../types';
 
 interface Estado {
   insumoA?: number;
@@ -191,8 +193,9 @@ async function main(): Promise<void> {
   }
 
   // A: 10@2 + 10@3 -> stock 20, costo 2.5
+  // B: 20@0.83 + 2 cajas (24u con merma 50%, total 44) -> stock 44, costo (16.6+44)/44=1.377
   try { logValidacion(F2, await validarStock(page, 'test A', 20, 2.5)); } catch (e) { log({ fase: F2, paso: "kardex.validarStock('test A')", ok: false, error: String(e) }); }
-  try { logValidacion(F2, await validarStock(page, 'test B', 24, 1.377)); } catch (e) { log({ fase: F2, paso: "kardex.validarStock('test B')", ok: false, error: String(e) }); }
+  try { logValidacion(F2, await validarStock(page, 'test B', 44, 1.377)); } catch (e) { log({ fase: F2, paso: "kardex.validarStock('test B')", ok: false, error: String(e) }); }
 
   try {
     const r = await modificarCompra(page, estado.compra1!, [
@@ -205,8 +208,9 @@ async function main(): Promise<void> {
   }
 
   // A: 10@2 + 5@3.5 -> stock 15, costo 2.5
+  // B: 20@0.83 + 3 cajas (36u con merma 50%, total 72) -> stock 56, costo (16.6+72)/56=1.582
   try { logValidacion(F2, await validarStock(page, 'test A', 15, 2.5)); } catch (e) { log({ fase: F2, paso: "kardex.validarStock('test A')", ok: false, error: String(e) }); }
-  try { logValidacion(F2, await validarStock(page, 'test B', 36, 1.465)); } catch (e) { log({ fase: F2, paso: "kardex.validarStock('test B')", ok: false, error: String(e) }); }
+  try { logValidacion(F2, await validarStock(page, 'test B', 56, 1.582)); } catch (e) { log({ fase: F2, paso: "kardex.validarStock('test B')", ok: false, error: String(e) }); }
 
   try {
     const r = await registrarCompra(page, {
@@ -230,8 +234,9 @@ async function main(): Promise<void> {
   }
 
   // A: 10@2 + 5@3.5 + 10@2.75 -> stock 25, costo 2.6
+  // B: 56 + 1 caja (12u, total 24) -> stock 68, costo (88.6+24)/68=1.656
   try { logValidacion(F2, await validarStock(page, 'test A', 25, 2.6)); } catch (e) { log({ fase: F2, paso: "kardex.validarStock('test A')", ok: false, error: String(e) }); }
-  try { logValidacion(F2, await validarStock(page, 'test B', 48, 1.59)); } catch (e) { log({ fase: F2, paso: "kardex.validarStock('test B')", ok: false, error: String(e) }); }
+  try { logValidacion(F2, await validarStock(page, 'test B', 68, 1.656)); } catch (e) { log({ fase: F2, paso: "kardex.validarStock('test B')", ok: false, error: String(e) }); }
 
   try {
     const r = await anularCompra(page, estado.compra1!, true);
@@ -241,8 +246,9 @@ async function main(): Promise<void> {
   }
 
   // A tras anular compra1: 10@2 + 10@2.75 -> stock 20, costo 2.375
+  // B tras anular compra1: 68 - 36u -> stock 32, costo (112.6-72)/32=1.269
   try { logValidacion(F2, await validarStock(page, 'test A', 20, 2.375)); } catch (e) { log({ fase: F2, paso: "kardex.validarStock('test A')", ok: false, error: String(e) }); }
-  try { logValidacion(F2, await validarStock(page, 'test B', 12, 1.3)); } catch (e) { log({ fase: F2, paso: "kardex.validarStock('test B')", ok: false, error: String(e) }); }
+  try { logValidacion(F2, await validarStock(page, 'test B', 32, 1.269)); } catch (e) { log({ fase: F2, paso: "kardex.validarStock('test B')", ok: false, error: String(e) }); }
 
   try {
     const r = await registrarNotaCredito(page, estado.compra2!, [{ nombre: 'test A', insumoId: estado.insumoA, cantidad: 2 }]);
@@ -286,8 +292,8 @@ async function main(): Promise<void> {
     log({ fase: F3, paso: 'guias.consultarGuia()', ok: false, error: String(e) });
   }
 
-  // A tras guia: 18 + 5 -> stock 23, costo ~2.663
-  try { logValidacion(F3, await validarStock(page, 'test A', 23, 2.663)); } catch (e) { log({ fase: F3, paso: "kardex.validarStock('test A')", ok: false, error: String(e) }); }
+  // A tras guia: 18 + 5 -> stock 23, costo (42.75+13.75)/23=2.457 (promedio ponderado; anular no revierte costo)
+  try { logValidacion(F3, await validarStock(page, 'test A', 23, 2.457)); } catch (e) { log({ fase: F3, paso: "kardex.validarStock('test A')", ok: false, error: String(e) }); }
 
   try {
     const r = await modificarGuia(page, estado.guia!, [{ nombre: 'test A', insumoId: estado.insumoA, cantidad: 10, precio: 2.75 }]);
@@ -296,8 +302,8 @@ async function main(): Promise<void> {
     log({ fase: F3, paso: 'guias.modificarGuia()', ok: false, error: String(e) });
   }
 
-  // A tras modificar guia: 18 + 10 -> stock 28, costo ~2.6786
-  try { logValidacion(F3, await validarStock(page, 'test A', 28, 2.6786)); } catch (e) { log({ fase: F3, paso: "kardex.validarStock('test A')", ok: false, error: String(e) }); }
+  // A tras modificar guia: 18 + 10 -> stock 28, costo (42.75+27.5)/28=2.509
+  try { logValidacion(F3, await validarStock(page, 'test A', 28, 2.509)); } catch (e) { log({ fase: F3, paso: "kardex.validarStock('test A')", ok: false, error: String(e) }); }
 
   try {
     const r = await anularGuia(page, estado.guia!, true);
@@ -306,8 +312,8 @@ async function main(): Promise<void> {
     log({ fase: F3, paso: 'guias.anularGuia()', ok: false, error: String(e) });
   }
 
-  // A tras anular guia: stock 18, costo ~2.6389
-  try { logValidacion(F3, await validarStock(page, 'test A', 18, 2.6389)); } catch (e) { log({ fase: F3, paso: "kardex.validarStock('test A')", ok: false, error: String(e) }); }
+  // A tras anular guia: stock 18, costo queda 2.375 (anular devuelve stock pero no recalcula costo promedio)
+  try { logValidacion(F3, await validarStock(page, 'test A', 18, 2.375)); } catch (e) { log({ fase: F3, paso: "kardex.validarStock('test A')", ok: false, error: String(e) }); }
 
   // =====================================================================
   // Reporte
@@ -331,6 +337,20 @@ async function main(): Promise<void> {
   console.log('\n== Resumen E2E ==');
   console.log('Exitosos: ' + exitosos + ' | Fallidos: ' + fallidos);
   console.log('Reporte generado: ' + rutaFinal);
+
+  // Entregables visuales (misma data del Excel, listos para presentar).
+  // PDF 100% Node vía PDFKit: no depende del navegador.
+  try {
+    const resumen = resumirReporte(reporte);
+    const rutaHtml = path.resolve('data', 'Reporte_Bot.html');
+    await fs.writeFile(rutaHtml, generarHtmlReporte(reporte, resumen), 'utf8');
+    console.log('HTML generado: ' + rutaHtml);
+    const rutaPdf = path.resolve('data', 'Reporte_Bot.pdf');
+    await generarPdfReporte(reporte, rutaPdf, resumen);
+    console.log('PDF generado: ' + rutaPdf);
+  } catch (e) {
+    console.log('No se pudo generar HTML/PDF (se mantiene el Excel): ' + String(e));
+  }
 
   await browser.close();
   process.exit(fallidos ? 1 : 0);

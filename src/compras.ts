@@ -64,6 +64,21 @@ export interface ResultadoOperacionE2E {
 }
 
 /**
+ * Fecha-hora local actual con el formato que el backend espera para la compra
+ * (`YYYY-MM-DD HH:mm:ss`). Antes se hardcodeaba una fecha fija que, al quedar
+ * en el pasado, hacía que el movimiento de la compra se registrara ANTES de la
+ * apertura de stock y el Kardex (ordenado por fecha) ignorara el incremento.
+ */
+export function ahoraLocal(): string {
+  const d = new Date();
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  );
+}
+
+/**
  * Traduce `EstadoForzadoCompra` al mapa crudo `CompraCabecera.extra` que
  * `bot.ts` vuelca sobre `compraNueva` con `Object.assign` (precedencia total).
  * Mantener aquí el mapeo nombre-amigable → nombre-de-campo para que, si la
@@ -93,8 +108,8 @@ export async function registrarCompra(page: Page, p: ParamCompra): Promise<Resul
       tipoComprobante: p.tipoComprobante || 'Factura',
       serie: p.serie,
       numero: p.numero + '-' + Date.now(),
-      fechaCompra: p.fechaCompra || '2026-09-21',
-      fechaTributacion: p.fechaCompra || '2026-09-21',
+      fechaCompra: p.fechaCompra || ahoraLocal(),
+      fechaTributacion: p.fechaCompra || ahoraLocal(),
       almacen: p.almacen || 'Almacen Principal',
       notas: '',
       impuestosIncluidos: true,
@@ -182,10 +197,10 @@ export async function modificarCompra(
       }
     },
     undefined,
-    { timeout: 60000 },
+    { timeout: 25000 },
   );
 
-  const endpoint = esperarEndpoint(page, 'compra/actualizarCompra', 300000).catch(() => null);
+  const endpoint = esperarEndpoint(page, 'compra/actualizarCompra', 60000).catch(() => null);
 
   const inyeccion = await page.evaluate(
     async (args) => {
@@ -292,14 +307,26 @@ export async function modificarCompra(
         if (!scope) return { ok: false, error: 'No se encontró editarCompraCtrl (vm.fnActualizarCompra).' };
         const vm = scope.vm;
 
-        // esperar que la compra esté cargada
+        // Esperar a que el detalle cargue con datos REALES. La directiva
+        // HandsOnTable (rp-hot) pre-puebla `detallecompraList` con filas
+        // vacías antes de que `fnCargarCompra` resuelva los `productos`, por lo
+        // que `length > 0` no basta: hay que esperar a que exista al menos una
+        // fila con `item_id` (o `item_descripcion`) real.
         const inicio = Date.now();
+        let detalleListo = false;
         while (Date.now() - inicio < 20000) {
-          if (vm.compra && vm.compra.detallecompraList && vm.compra.detallecompraList.length > 0) break;
+          const lista = vm.compra && vm.compra.detallecompraList;
+          if (lista && lista.some((x: any) => x && (x.item_id || x.item_descripcion))) {
+            detalleListo = true;
+            break;
+          }
           await new Promise((res) => setTimeout(res, 200));
         }
         if (!vm.compra || !vm.compra.detallecompraList) {
           return { ok: false, error: 'La compra no se cargó para edición.' };
+        }
+        if (!detalleListo) {
+          return { ok: false, error: 'El detalle de la compra cargó sin datos de ítems.' };
         }
 
         for (const d of args.detalle) {
@@ -310,23 +337,21 @@ export async function modificarCompra(
           fila.item_total = d.cantidad * d.precio;
         }
 
+        // Regenerar el formato backend desde el detalle editado (igual que
+        // fnActualizarCompra / procesarDatosCompra). Enviar el
+        // detallecompraListParaBackend "viejo" provocaba
+        // "La lista de productos y/o insumos está vacía.".
+        try {
+          vm.compra.detallecompraListParaBackend = vm.compra.obtenerFormatoDetalleCompraBackend(
+            vm.compra.detallecompraList,
+            vm.compra.impuestoList,
+            vm.compra.compra_id,
+          );
+        } catch (e) {
+          return { ok: false, error: 'No se pudo regenerar detallecompraListParaBackend: ' + (e instanceof Error ? e.message : String(e)) };
+        }
+
         scope.$apply();
-
-        const compraNueva = angular.copy(vm.compra);
-        compraNueva.proveedor_id = vm.compra.proveedorSeleccionado
-          ? vm.compra.proveedorSeleccionado.proveedor_id
-          : null;
-        compraNueva.moneda_id = vm.compra.monedaSeleccionada ? vm.compra.monedaSeleccionada.moneda_id : null;
-        compraNueva.local_id = vm.local_id;
-        compraNueva.almacen_id = vm.almacen_id;
-
-        const objEnvio = {
-          compra: compraNueva,
-          productos: vm.compra.detallecompraListParaBackend,
-          movimientoEmulacionCompraList: vm.emulacionMovimiento ? vm.emulacionMovimiento.movimientos : undefined,
-        };
-
-        vm.compra.actualizarCompra(objEnvio);
         return { ok: true };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -354,8 +379,43 @@ export async function modificarCompra(
     return { ok: false, error };
   }
 
+  // El botón "Guardar cambios" solo existe tras la previsualización
+  // (ng-if="mostrarPrevisualizacionMovimientoCompra"), así que se invoca
+  // vm.fnActualizarCompra() directamente: el controlador reconstruye el
+  // objEnvio desde el detalle regenerado y muestra el rpAlert de
+  // confirmación antes de disparar actualizarCompra.
+  await page.evaluate(() => {
+    const injector = angular.element(document.body).injector();
+    const $rootScope = injector.get('$rootScope');
+    let found: any = null;
+    (function walk(s: any): void {
+      if (found) return;
+      if (s.vm && typeof s.vm.fnActualizarCompra === 'function') {
+        found = s;
+        return;
+      }
+      let c = s.$$childHead;
+      while (c) {
+        walk(c);
+        c = c.$$nextSibling;
+      }
+    })($rootScope);
+    if (!found) throw new Error('No se encontró editarCompraCtrl para guardar.');
+    found.vm.fnActualizarCompra();
+  });
+  await page.waitForSelector('.swal2-confirm', { timeout: 15000 }).catch(() => {});
+  const confirmBtn = await page.$('.swal2-confirm');
+  if (confirmBtn) await confirmBtn.click();
+
   const resp = await endpoint;
   const r = await leerRespuesta(resp);
+  // Dejar que el stock se asiente y cerrar el alert de éxito antes de validar.
+  await page.waitForTimeout(800).catch(() => {});
+  try {
+    const okBtn = await page.$('.swal2-confirm');
+    if (okBtn) await okBtn.click();
+  } catch { /* ignore */ }
+  await page.waitForTimeout(400).catch(() => {});
   if (r.json && Number(r.json.tipo) === 1) return { ok: true, id };
   return {
     ok: false,

@@ -24,6 +24,8 @@ export interface ParamGuia {
   moneda?: string;
   almacen?: string;
   detalle: ParamDetalleGuia[];
+  /** Canje guía→OC (GuiaLogistica:178-180 copia a listaOrdenesCompra). */
+  ordencompraList?: number[];
 }
 
 export interface ResultadoOperacionE2E {
@@ -36,7 +38,7 @@ export async function registrarGuia(page: Page, p: ParamGuia): Promise<Resultado
   await navegar(page, 'logistica.guiacompra.nuevaguia');
   await esperarGuiaLista(page);
 
-  const endpoint = esperarEndpoint(page, 'guiacompra/guardarGuia', 300000).catch(() => null);
+  const endpoint = esperarEndpoint(page, 'guiacompra/guardarGuia', 60000).catch(() => null);
 
   const inyeccion = await page.evaluate(async (args) => {
     try {
@@ -183,6 +185,7 @@ export async function registrarGuia(page: Page, p: ParamGuia): Promise<Resultado
       scope.$apply();
 
       const guiaNueva = angular.copy(vm.guia);
+      if (args.ordencompraList) guiaNueva.ordencompraList = args.ordencompraList;
       guiaNueva.guia_fechaemision = moment().format('YYYY-MM-DD HH:mm:ss');
       guiaNueva.proveedor_id = vm.guia.proveedorSeleccionado.proveedor_id;
       guiaNueva.moneda_id = vm.guia.monedaSeleccionada.moneda_id;
@@ -254,7 +257,7 @@ export async function modificarGuia(
   detalle: ParamDetalleGuia[],
 ): Promise<ResultadoOperacionE2E> {
   await navegar(page, 'logistica.guiacompra.editarguia', { idGuia: id });
-  const endpoint = esperarEndpoint(page, 'guiacompra/actualizarGuia', 300000).catch(() => null);
+  const endpoint = esperarEndpoint(page, 'guiacompra/actualizarGuia', 60000).catch(() => null);
 
   const inyeccion = await page.evaluate(async (args) => {
     try {
@@ -359,13 +362,24 @@ export async function modificarGuia(
       if (!scope) return { ok: false, error: 'No se encontró editarGuiaCompraCtrl.' };
       const vm = scope.vm;
 
+      // Igual que en modificarCompra: la directiva HandsOnTable pre-puebla
+      // `detalleguiaList` con filas vacías antes de que `fnobtenerGuia`
+      // resuelva los `productos`, así que esperamos una fila con datos reales.
       const inicio = Date.now();
+      let detalleListo = false;
       while (Date.now() - inicio < 20000) {
-        if (vm.guia && vm.guia.detalleguiaList && vm.guia.detalleguiaList.length > 0) break;
+        const lista = vm.guia && vm.guia.detalleguiaList;
+        if (lista && lista.some((x: any) => x && (x.item_id || x.item_descripcion))) {
+          detalleListo = true;
+          break;
+        }
         await new Promise((res) => setTimeout(res, 200));
       }
       if (!vm.guia || !vm.guia.detalleguiaList) {
         return { ok: false, error: 'La guía no se cargó para edición.' };
+      }
+      if (!detalleListo) {
+        return { ok: false, error: 'El detalle de la guía cargó sin datos de ítems.' };
       }
 
       for (const d of args.detalle) {
@@ -449,6 +463,6 @@ async function esperarGuiaLista(page: Page): Promise<void> {
       }
     },
     undefined,
-    { timeout: 60000 },
+    { timeout: 25000 },
   );
 }

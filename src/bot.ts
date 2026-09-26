@@ -77,11 +77,14 @@ export async function ejecutarCompras(page: Page, compras: CompraAgrupada[]): Pr
   return resultados;
 }
 
-export async function registrarInsumo(page: Page, insumo: InsumoAgrupado): Promise<ResultadoOperacion> {
-  await navegar(page, STATE_INSUMO_NUEVO);
+const STATE_CONSUMIBLE_NUEVO = 'logistica.insumos.consumible.nuevo';
+
+export async function registrarInsumo(page: Page, insumo: InsumoAgrupado, estado?: string): Promise<ResultadoOperacion> {
+  await navegar(page, estado || STATE_INSUMO_NUEVO);
   await esperarInsumoListo(page);
 
-  const registrar = esperarEndpoint(page, 'producto/insumo/registrarInsumo').catch(() => null);
+  const endpointRegistro = insumo.receta ? 'receta/registrarReceta' : 'producto/insumo/registrarInsumo';
+  const registrar = esperarEndpoint(page, endpointRegistro).catch(() => null);
   const aperturar = esperarEndpoint(page, 'producto/insumo/aperturarStock').catch(() => null);
 
   const inyeccion = await page.evaluate(async (grupo: InsumoAgrupado) => {
@@ -177,6 +180,7 @@ export async function registrarInsumo(page: Page, insumo: InsumoAgrupado): Promi
       vm.insumo.insumo_porcentajeventa = cab.margenGanancia;
       vm.insumo.insumo_mermaporcentaje = cab.mermaCompra;
       vm.insumo.permiteConversion = cab.permiteConversion ? '1' : '0';
+      vm.insumo.insumo_consumible = (cab as any).consumible ? '1' : '0';
 
       if (cab.clasificacionAbc) {
         const mapa: Record<string, string> = { A: '1', B: '2', C: '3' };
@@ -217,7 +221,37 @@ export async function registrarInsumo(page: Page, insumo: InsumoAgrupado): Promi
       }
 
       scope.$apply();
-      vm.registrarInsumo();
+      if (grupo.receta) {
+        const injector2 = angular.element(document.body).injector();
+        const InsumoSvc = injector2.get('Insumo');
+        // La receta exige categoriareceta_id (NO categoriainsumo_id):
+        // _validarCategoriainsumoParaRegistro, InsumoLogisticaValidator:910-916.
+        try {
+          const catRec = await InsumoSvc.obtenerCategoriarecetaList();
+          const cats = (catRec && catRec.data) || [];
+          const activa = cats.find((c: any) => String(c.categoriareceta_estado) === '1') || cats[0];
+          if (!activa) return { ok: false, error: 'Sin categorías de receta.' };
+          vm.insumo.categoriareceta_id = activa.categoriareceta_id;
+        } catch (e) {
+          return { ok: false, error: 'No se pudo resolver categoriareceta: ' + (e instanceof Error ? e.message : String(e)) };
+        }
+        // Deriva esquema-código: el scope nuevo trae `insumo_tienereemplazables`
+        // pero la columna NO existe en logisticaaa.insumo (ni en restaurant.sql).
+        // Con esDominioReemplazablesProduccion()=true en local, el backend la
+        // incluiría en el INSERT → 500 (InsumoEntity.php:1189). Se elimina:
+        // prepararCheckReemplazables() la tolera ausente.
+        delete vm.insumo.insumo_tienereemplazables;
+        delete vm.insumo.reemplazables;
+        vm.insumo.insumo_genera = grupo.receta.genera;
+        vm.insumo.ingredientesList = grupo.receta.ingredientes.map((ing: any) => ({
+          receta_insumoid: ing.insumoId,
+          receta_cantidad: ing.cantidad,
+          unidadmedidainsumo_id: ing.umId,
+        }));
+        InsumoSvc.registrarReceta(vm.insumo);
+      } else {
+        vm.registrarInsumo();
+      }
       return { ok: true, presentaciones: presentaciones.length - 1 };
     } catch (e) {
       return {
@@ -267,7 +301,7 @@ export async function registrarCompra(page: Page, compra: CompraAgrupada): Promi
   await navegar(page, STATE_COMPRA_NUEVA);
   await esperarCompraLista(page);
 
-  const agregar = esperarEndpoint(page, 'compra/agregarCompra', 300000).catch(() => null);
+  const agregar = esperarEndpoint(page, 'compra/agregarCompra', 60000).catch(() => null);
 
   const inyeccion = await page.evaluate(async (grupo: CompraAgrupada) => {
     try {
@@ -635,7 +669,7 @@ export async function esperarInsumoListo(page: Page): Promise<void> {
       }
     },
     undefined,
-    { timeout: 60000 },
+    { timeout: 25000 },
   );
 }
 
@@ -668,7 +702,7 @@ export async function esperarCompraLista(page: Page): Promise<void> {
       }
     },
     undefined,
-    { timeout: 60000 },
+    { timeout: 25000 },
   );
 }
 
@@ -725,6 +759,8 @@ export interface ParamCrearInsumo {
   mermaCompra?: number;
   equivalencia?: { cantidad: number; unidadMedida: string };
   margenGanancia?: number;
+  /** true → estado logistica.insumos.consumible.nuevo + insumo_consumible='1' */
+  consumible?: boolean;
 }
 
 export async function crearInsumo(
@@ -749,6 +785,7 @@ export async function crearInsumo(
       mermaCompra: p.mermaCompra ?? 0,
       permiteConversion: !!p.equivalencia,
       impuestos: [],
+      ...(p.consumible ? { consumible: true } : {}),
     },
     presentaciones: [
       {
@@ -778,10 +815,85 @@ export async function crearInsumo(
     equivalencia: p.equivalencia,
   };
 
+  const r = await registrarInsumo(page, insumo, p.consumible ? STATE_CONSUMIBLE_NUEVO : undefined);
+  await cerrarModales(page);
+  if (r.ok) return { ok: true, id: r.idGenerado };
+  return { ok: false, error: r.error };
+}
+
+export interface ParamCrearReceta {
+  nombre: string;
+  codigo?: string;
+  /** 1 plato consume `cantidad` del insumo (matriz: recetas 1:1 en UNIDAD). */
+  ingredientes: Array<{ insumoId: number; cantidad: number; umId?: number }>;
+  genera?: number;
+}
+
+/** Alta de receta (plato) para explosión MRP: POST producto/receta/registrarReceta. */
+export async function crearReceta(
+  page: Page,
+  p: ParamCrearReceta,
+): Promise<{ ok: boolean; id?: number; error?: string }> {
+  await cerrarModales(page);
+  const codigo = p.codigo || 'E2E-RCP-' + Date.now();
+  const um = 'UNIDAD';
+  const insumo: InsumoAgrupado = {
+    idOperacion: 'E2E-' + p.nombre,
+    cabecera: {
+      codigo,
+      codigoInterno: codigo,
+      nombre: p.nombre,
+      unidadMedida: um,
+      categoria: 'Categoria uno',
+      clasificacionAbc: 'A',
+      proveedor: 'GRUPO SEVEN SEAS SAC',
+      margenGanancia: 0,
+      mermaCompra: 0,
+      permiteConversion: false,
+      impuestos: [],
+    },
+    presentaciones: [
+      {
+        nombre: 'Base',
+        cantidad: 1,
+        unidadMedida: um,
+        costo: 0,
+        precioMinimo: 0,
+        precioMaximo: 0,
+        unidadControl: true,
+        seVende: false,
+        precioVenta: 0,
+        esEstandar: true,
+        activa: true,
+      },
+    ],
+    inventario: [
+      {
+        almacen: 'Almacen Principal',
+        controlarStock: true,
+        stockApertura: 0,
+        costoApertura: 0,
+        stockMinimo: 0,
+        stockMaximo: 0,
+      },
+    ],
+    receta: {
+      ingredientes: p.ingredientes.map((i) => ({ insumoId: i.insumoId, cantidad: i.cantidad, umId: i.umId ?? 1 })),
+      genera: p.genera ?? 1,
+    },
+  };
   const r = await registrarInsumo(page, insumo);
   await cerrarModales(page);
   if (r.ok) return { ok: true, id: r.idGenerado };
   return { ok: false, error: r.error };
+}
+
+/** Alta de consumible (casos 10+): mismo registrarInsumo con flag insumo_consumible='1'. */
+export async function crearConsumible(
+  page: Page,
+  p: ParamCrearInsumo,
+): Promise<{ ok: boolean; id?: number; error?: string }> {
+  return crearInsumo(page, { ...p, consumible: true });
 }
 
 export async function cerrarModales(page: Page): Promise<void> {
@@ -797,7 +909,7 @@ export async function cerrarModales(page: Page): Promise<void> {
   } catch {
     /* ignore */
   }
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(150);
 }
 
 export async function consultarInsumo(page: Page, nombre: string): Promise<number | null> {

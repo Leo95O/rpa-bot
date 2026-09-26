@@ -43,12 +43,20 @@ export interface InsumoEquivalencia {
   unidadMedida: string;
 }
 
+export interface IngredienteReceta {
+  insumoId: number;
+  cantidad: number;
+  umId: number;
+}
+
 export interface InsumoAgrupado {
   idOperacion: string;
   cabecera: InsumoCabecera;
   presentaciones: InsumoPresentacion[];
   inventario: InsumoInventario[];
   equivalencia?: InsumoEquivalencia;
+  /** Si se define, se registra como RECETA (1 plato = `genera` con estos ingredientes). */
+  receta?: { ingredientes: IngredienteReceta[]; genera: number };
 }
 
 export interface CompraCabecera {
