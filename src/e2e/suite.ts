@@ -9,6 +9,8 @@ import { runBloque3 } from './traslados.spec';
 import { runBloque4 } from './ajustes.spec';
 import { runBloque5 } from './mrp.spec';
 import { runBloque6 } from './canjes.spec';
+import { runBloque7 } from './contraste.spec';
+import { runBloque8 } from './ediciones.spec';
 import { abrirStandalone } from './harness';
 import { generarHtmlReporte, generarPdfReporte, resumirReporte } from '../reporte';
 import { promises as fs } from 'fs';
@@ -27,6 +29,10 @@ async function main(): Promise<void> {
   await runBloque5(ctx.page, ctx.estado, ctx.reporte);
   console.log('\n== Suite Masiva: Bloque 6 (casos 29-35) ==');
   await runBloque6(ctx.page, ctx.estado, ctx.reporte);
+  console.log('\n== Suite Masiva: Bloque 7 (casos 36+, contraste) ==');
+  await runBloque7(ctx.page, ctx.estado, ctx.reporte);
+  console.log('\n== Suite Masiva: Bloque 8 (casos 40-45, ediciones) ==');
+  await runBloque8(ctx.page, ctx.estado, ctx.reporte);
 
   const resumen = resumirReporte(ctx.reporte);
   const html = generarHtmlReporte(ctx.reporte, resumen);

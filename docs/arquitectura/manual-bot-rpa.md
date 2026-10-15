@@ -46,6 +46,7 @@ npm run test:suite → src/e2e/suite.ts
   ├─ runBloque4(page, estado, reporte)  casos 19-20 (Ajustes)
   ├─ runBloque5(page, estado, reporte)  casos 21-28 (MRP)
   ├─ runBloque6(page, estado, reporte)  casos 29-35 (Canjes)
+  ├─ runBloque7(page, estado, reporte)  casos 36-39 (Contraste, ver §8)
   └─ Reporte_Suite.html + Reporte_Suite.pdf (resumen Éxitos/Fallidos)
 ```
 
@@ -55,16 +56,18 @@ Cada spec expone `runBloqueN(page, estado, reporte)` **puro** (sin browser/limpi
 
 | Bloque | Spec | Casos | Objetivo | Módulos ERP ejercitados |
 |---|---|---|---|---|
-| 1 Aprovisionamiento | `aprovisionamiento.spec.ts` | 1-9 | Alta de insumo, cadena Solicitud→OC→Compra, PPP, NC cantidad (costo congelado), LIFO, negativa de OC canjeada | `insumo`, `requerimientocompra`, `ordencompra`, `compra`, `notacreditocompra` |
+| 1 Aprovisionamiento | `aprovisionamiento.spec.ts` | 1-9 + 9A-9B | Alta de insumo, cadena Solicitud→OC→Compra, PPP, NC cantidad (costo congelado), LIFO, negativa de OC canjeada, **contraste exonerado (9A-9B)** | `insumo`, `requerimientocompra`, `ordencompra`, `compra`, `notacreditocompra` |
 | 2 Consumibles | `consumibles.spec.ts` | 10-12 | Alta con `insumo_consumible='1'`, compra y salida con Kardex en **tabla espejo** | `insumo` (flag), `compra`, `merma`, `movimientoalmacenconsumible` |
 | 3 Traslados | `traslados.spec.ts` | 13-18 | Requerimiento→OM→movimiento (doble vía con costo heredado), guía documentaria, negativa por emulación, salida en destino | `requerimientomovimiento`, `ordenmovimiento` (`solitudmovimiento`), `movimiento`, `merma`, `emulador` |
 | 4 Ajustes | `ajustes.spec.ts` | 19-20 | Cuadre faltante (costo congelado) y sobrante (**revaloriza** al costo digitado), con `procesarCuadrePendiente` obligatorio | `cuadremanual`, `detallecuadremanual` |
 | 5 MRP | `mrp.spec.ts` | 21-28 | Recetas 1:1, OPs, detección de faltantes vía `obtenerParaAbastecer`, desvío interno/externo, aprobación/freno, recepción del importado | `receta`, `ordenproduccion`, `requerimientocompra`, `ordencompra`, `compra` |
 | 6 Canjes | `canjes.spec.ts` | 29-35 | OC→Guía de compra (`ordencompraList`), traslado 2.º lote, requerimiento→OP (`requerimientomovimiento_id`) | `ordencompra`, `guia`, `requerimientomovimiento`, `movimiento`, `ordenproduccion` |
+| 7 Contraste | `contraste.spec.ts` | 36-39 | Toggles de display 72/106 desde baseline con restauración garantizada (ver §8) | `configuracionlocal` (solo lectura/flags), Kardex en modo lectura |
 
 ### 2.3 Reglas transversales de la suite
 
 1. **Acumulación estricta**: solo el Bloque 1 limpia (`data/limpieza_bd.sql`, 77 statements + semilla). Los demás asumen el cierre del anterior y lo **verifican como precondición con fail-fast** (aborto del bloque, no cascada de timeouts).
+2. **Escenario de contraste exonerado (9A-9B)**: el Bloque 1 da de alta "Insumo Exonerado QA" y lo compra con `afectoIgv=false`. Su propósito es puramente comparativo: al no haber impuesto, costo con y sin impuestos deben ser matemáticamente idénticos (10/10/10), de modo que cualquier divergencia futura señale deriva del motor de desgravación y no del dato.
 2. **Oráculo tras cada mutación**: toda escritura va seguida de lectura de stock/costo (ver §4).
 3. **Negativas sin literales frágiles**: se aserta el bloqueo funcional (tipo≠1, flag, estado), no la ortografía del mensaje.
 4. **Sucursal = almacén 18 "Producción"** (el local 1 solo tiene el 1 Principal y el 18); Central = almacén 1.
@@ -194,9 +197,23 @@ costo = costopromedioactual de la última ENTRADA viva
 
 Sin movimientos + esperado 0/0 = OK (alta fresca).
 
-### 4.3 PPP esperado vs real
+### 4.3 PPP esperado vs real (vía doble: con y sin impuestos)
 
-`ppp(stockAnt, costoAnt, cant, costo) = (stockAnt*costoAnt + cant*costo)/(stockAnt+cant)` (`fixtures.ts`, espejo de `MovimientoalmaceninsumoV2.php:2969-2987`, redondeo a 3 decimales en aserciones). Reglas del backend que el oráculo replica:
+El oráculo arrastra **dos vías paralelas** del promedio ponderado, ambas con tolerancia 0.02 y redondeo a 3 decimales:
+
+- **Vía con impuestos**: `ppp(stockAnt, costoAnt, cant, costo)`, espejo de `MovimientoalmaceninsumoV2.php:2969-2987`.
+- **Vía sin impuestos**: idéntica fórmula alimentada con costos desgravados. El divisor de desgravación **no está hardcodeado**: se lee una vez al inicio desde la tabla `igv` (fila con `fiscalizado=1` del local; fallback 18 con el mismo forzado 10→18 del backend), de modo que un cambio de IGV no produce falsos rojos.
+
+La fuente del valor real es `costoStock.costosinimpuesto` del propio Kardex (`getStockCosto`), disponible haya o no display sin-impuestos activo. Para exonerados ambas vías coinciden por construcción (ver §2, casos 9A-9B).
+
+### 4.4 Auditoría transaccional de subtotales
+
+Además del Kardex, el bot intercepta los documentos recién creados y valida la matemática persistida:
+
+- **Compras** (`detallecompra`): `costo == precio pactado`, `costosinimpuestos == precio/IGV` si afecto o `== precio` si exonerado (`afectoIgv=false` viaja en el detalle), y `subtotal == costoSin × cantidad`. Activa por detalle marcado (`verificarSinImpuestos`), sin alterar el flujo de registro.
+- **Órdenes de Compra** (`detalleordencompra`): la OC **pacta, no desgrava** — verificado por SQL: `precio` guarda el importe y `preciosinimpuestos` queda NULL. La auditoría lo aserta así en vez de exigir una desgravación que el documento no hace.
+
+### 4.5 Reglas del backend que el oráculo replica
 
 | Evento | Stock | Costo |
 |---|---|---|
@@ -307,7 +324,7 @@ Cada helper de escritura devuelve `{ok, id?, error?, raw?, payload?}` donde `raw
 **Suite completa (35 casos, ~5 min en verde):**
 
 ```powershell
-npm run test:suite          # limpia 1 vez, encadena Bloques 1→6, Reporte_Suite.*
+npm run test:suite          # limpia 1 vez, encadena Bloques 1→7, Reporte_Suite.*
 ```
 
 **Bloque individual (depuración aislada):**
@@ -408,6 +425,38 @@ $env:DEBUG='1'; npm run test:suite   # PowerShell (sintaxis bash VAR=1 no funcio
 2. Filas numeradas (N° continua 1..N, fases en orden de ejecución). Fila **roja** = aserción fallida con `Esperado vs Real` + `Error` (literal del backend o del bot).
 3. Protocolo de triaje: (a) ¿falló la precondición del bloque? → el problema está en el bloque anterior, no en este; (b) ¿el `Real` es timeout/ составило nulo? → entorno (sesión, API caída), reintentar; (c) ¿divergencia numérica? → comparar contra §4.3 y `MATRIZ_E2E_MASIVA.md`: si el backend tiene razón, actualizar matriz+spec el mismo día; si no, defecto a desarrollo con archivo:línea.
 4. Para depuración profunda, re-correr con `DEBUG=1`: los `[DIAG]` muestran payload enviado, JSON crudo PHP y respuesta de red por cada escritura.
+
+---
+
+---
+
+## 8. Bloque 7: Contraste Matemático y Entorno Agnóstico
+
+### 8.1 Motivación
+
+Los Bloques 1-6 validan la matemática bajo el entorno tal cual está. El Bloque 7 responde la pregunta inversa: **¿sigue siendo correcta la lectura del Kardex cuando cambian las reglas de visualización?** Y lo hace sin asumir nada del cliente: primero **lee** el entorno, opera sobre lo leído y lo **restaura**.
+
+### 8.2 Baseline: snapshot del entorno (cero hardcodeo)
+
+Al abrir la suite se capturan los flags matemáticos de display para el local 1:
+
+- Config 72 (mostrar costos sin impuestos).
+- Config 106 (mostrar costos de última compra).
+
+Ese snapshot es el **baseline**: los Bloques 1-6 interpretan el campo `costo` a través de él (con 106 activo el campo refleja la última entrada viva del Kardex, no el PPP; con 72 activo refleja el sin-impuestos), de modo que la suite pasa bajo cualquier combinación sin alterar los casos. El baseline se imprime en consola al inicio para auditoría.
+
+### 8.3 Toggles con aislamiento estricto
+
+Secuencia del bloque (solo lecturas de Kardex, ningún movimiento de stock):
+
+1. **Caso 36**: registra el baseline en el reporte.
+2. **Caso 37**: activa 72 y aserta que el campo `costo` iguala a `costo_sin_imp` en tres lecturas representativas (afecto, exonerado, consumible — este último por endpoint Kardex, no por tabla espejo, porque el display vive en la respuesta, no en la tabla).
+3. **Caso 38**: restaura 72, activa 106 y aserta que `costo` iguala a la última entrada viva, verificando además que el sin-impuestos se sigue exponiendo en paralelo.
+4. **Caso 39 + verificación post-restore**: todo el bloque corre dentro de `try...finally` que devuelve ambos flags exactamente al baseline **pase lo que pase** (incluido fallo intermedio), y una lectura final confirma que el display volvió a la normalidad.
+
+### 8.4 Principio de agnosticismo
+
+El bot nunca asume 0/0 inicial: si un cliente opera con 72 o 106 activos, los Bloques 1-6 interpretan correctamente y el Bloque 7 invierte desde ese punto (apagando en vez de encendiendo). La suite certifica el ERP **para cualquier local**, no solo para el entorno de desarrollo.
 
 ---
 

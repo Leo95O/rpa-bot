@@ -14,7 +14,10 @@
     "test:bloque4": "ts-node src/e2e/ajustes.spec.ts",
     "test:bloque5": "ts-node src/e2e/mrp.spec.ts",
     "test:bloque6": "ts-node src/e2e/canjes.spec.ts",
-    "test:suite": "ts-node src/e2e/suite.ts"
+    "test:bloque7": "ts-node src/e2e/contraste.spec.ts",
+    "test:bloque8": "ts-node src/e2e/ediciones.spec.ts",
+    "test:suite": "ts-node src/e2e/suite.ts",
+    "checklist": "ts-node src/e2e/checklist.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

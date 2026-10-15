@@ -50,9 +50,17 @@ export interface EstadoSuite {
   mov2Id?: number;
   reqProdId?: number;
   opReqId?: number;
+  compraImportadoEditada?: boolean;
 }
 
 // Casos 29-35 (precondición: cierre del Bloque 5).
+// Casos 40-45 (precondición: cierre de la suite 1-7).
+export const QA_EDIT = {
+  importadoPrecioNuevo: 18, // 80@15 → 80@18
+  guiaCantidadNueva: 20, // guía-2 30@22 → 20@22: Central 53→43, PPP (825+440)/53=23.868
+  oc2PrecioNuevo: 25, // OC-2 30@22 → 30@25: importe 750
+} as const;
+
 export const QA_CANJES = {
   oc2: { cantidad: 30, costo: 22 },
   req2Cantidad: 10,
@@ -117,6 +125,63 @@ let divisorIgv = 1.18;
 
 export function getDivisorIgv(): number {
   return divisorIgv;
+}
+
+/** Baseline de configuraciones matemáticas (punto 1: cero hardcodeo). */
+export interface BaselineEntorno {
+  c72: number;
+  c106: number;
+}
+
+let baseline: BaselineEntorno = { c72: 0, c106: 0 };
+
+export function getBaseline(): BaselineEntorno {
+  return baseline;
+}
+
+async function connYB(): Promise<import('mysql2/promise').Connection> {
+  const mysql = await import('mysql2/promise');
+  return mysql.createConnection({
+    host: process.env.DB_HOST || 'localhost',
+    port: Number(process.env.DB_PORT) || 3306,
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'logisticaaa',
+  });
+}
+
+/** Lee el estado real de las configs 72/106 (local 1) y lo almacena. */
+export async function leerBaseline(): Promise<BaselineEntorno> {
+  const conn = await connYB();
+  try {
+    const [rows] = await conn.query(
+      'SELECT configuracion_id AS id, configuracionlocal_valor AS v ' +
+        'FROM configuracionlocal WHERE configuracion_id IN (72,106) AND local_id = 1',
+    );
+    const map: Record<number, number> = { 72: 0, 106: 0 };
+    for (const r of rows as Array<{ id: number; v: string }>) {
+      map[Number(r.id)] = Number(r.v) === 1 ? 1 : 0;
+    }
+    baseline = { c72: map[72], c106: map[106] };
+  } catch {
+    baseline = { c72: 0, c106: 0 };
+  } finally {
+    await conn.end();
+  }
+  return baseline;
+}
+
+/** Setea un flag de display (72/106) en local 1. Solo Bloque 7, con restore. */
+export async function setConfig(id: 72 | 106, valor: 0 | 1): Promise<void> {
+  const conn = await connYB();
+  try {
+    await conn.query(
+      'UPDATE configuracionlocal SET configuracionlocal_valor = ? WHERE configuracion_id = ? AND local_id = 1',
+      [String(valor), id],
+    );
+  } finally {
+    await conn.end();
+  }
 }
 
 export async function cargarIgvFiscalizado(): Promise<number> {

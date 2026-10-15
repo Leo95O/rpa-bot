@@ -7,7 +7,7 @@ import { Browser, Page } from 'playwright';
 import { conectarNavegador, obtenerPaginaApp, navegar } from '../bot';
 import { limpiarBaseDatos } from '../db';
 import { FilaReporte } from '../types';
-import { EstadoSuite, cargarIgvFiscalizado } from './fixtures';
+import { EstadoSuite, cargarIgvFiscalizado, leerBaseline } from './fixtures';
 import { Veredicto } from './oracle';
 
 export interface ContextoSuite {
@@ -44,6 +44,8 @@ export async function abrirStandalone(limpiar: boolean): Promise<ContextoSuite> 
   }
   const igv = await cargarIgvFiscalizado();
   console.log('IGV fiscalizado (divisor desgravación): ' + igv);
+  const bl = await leerBaseline();
+  console.log('Baseline entorno: c72(mostrar sin imp)=' + bl.c72 + ' c106(última compra)=' + bl.c106);
   const browser = await conectarNavegador();
   const page = await obtenerPaginaApp(browser);
   await navegar(page, 'logistica.escritorio');

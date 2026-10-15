@@ -20,7 +20,7 @@ Luego abrir `http://localhost:9002/#!/escritorio` e **iniciar sesión** (`admin 
 El bot se adosa a ese Chrome (`connectOverCDP`); sin pestaña logueada, todo timeoutea.
 
 ```powershell
-npm run test:suite                   # 35 casos, ~5 min en verde
+npm run test:suite                   # 35 casos + contraste (Bloques 1→7), ~6 min en verde
 $env:DEBUG='1'; npm run test:suite   # modo diagnóstico ([DIAG] payloads + JSON PHP)
 ```
 

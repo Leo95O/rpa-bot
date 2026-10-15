@@ -9,7 +9,7 @@
 import { Page } from 'playwright';
 import mysql from 'mysql2/promise';
 import { validarStock } from '../kardex';
-import { TOLERANCIA, getDivisorIgv } from './fixtures';
+import { TOLERANCIA, getDivisorIgv, getBaseline } from './fixtures';
 
 declare const angular: any;
 
@@ -35,6 +35,138 @@ export function fmtStock(stock: number, costo: number, costoSinImp?: number): st
   return costoSinImp === undefined ? base : base + '; costo_sin_imp=' + costoSinImp;
 }
 
+/** Lectura cruda del Kardex por almacén (para contrastes, sin aserción). */
+export async function leerKardex(
+  page: Page, nombre: string, almacenDesc: string,
+): Promise<{ stock: number; costo: number; costoSinImp: number } | null> {
+  try {
+    const r = await page.evaluate(async (args) => {
+      try {
+        const injector = angular.element(document.body).injector();
+        const CommonCollection = injector.get('CommonCollection');
+        const Insumo = injector.get('Insumo');
+        const PARAM = injector.get('PARAM');
+        const SecurityService = injector.get('SecurityService');
+        const localId = SecurityService.getLocalId() || PARAM.NO;
+        const resp = await CommonCollection.busquedaSensitivaSegunTipos(
+          args.nombre, PARAM.SI, PARAM.SI, PARAM.SI, PARAM.SI, PARAM.NO, PARAM.NO, PARAM.NO, PARAM.SI, PARAM.NO,
+          PARAM.SI, PARAM.SI, PARAM.SI, PARAM.NO, PARAM.NO, PARAM.SI, localId, PARAM.NO, PARAM.SI, PARAM.NO, PARAM.NO,
+        );
+        const lista = (resp && resp.data) || [];
+        const item = lista.find(
+          (x: any) => String(x.item_descripcion || '').trim().toLowerCase() === String(args.nombre).trim().toLowerCase(),
+        );
+        if (!item) return null;
+        const sr = await Insumo.obtenerStockYCosto(item.item_id);
+        const almacenes = (sr && sr.data) || [];
+        const alm = almacenes.find((a: any) =>
+          String(a.almacen_descripcion || '').toLowerCase().indexOf(String(args.almacen).toLowerCase()) >= 0);
+        if (!alm) return { stock: 0, costo: 0, costoSinImp: 0 };
+        const cs = alm.costoStock || {};
+        return {
+          stock: Number(alm.stock || 0), costo: Number(alm.costo || 0),
+          costoSinImp: cs.costosinimpuesto != null ? Math.round(Number(cs.costosinimpuesto) * 1000) / 1000 : 0,
+        };
+      } catch {
+        return null;
+      }
+    }, { nombre, almacen: almacenDesc });
+    return r;
+  } catch {
+    return null;
+  }
+}
+
+/** Resuelve ids por SQL (sin depender del frontend). */
+export async function resolverIdsSQL(
+  nombre: string, almacenDesc: string,
+): Promise<{ insumoId: number; almacenId: number } | null> {
+  const conn = await mysql.createConnection(DB);
+  try {
+    const [ins] = await conn.query(
+      'SELECT insumo_id AS id FROM insumo WHERE insumo_descripcion = ? OR insumo_nombre = ? LIMIT 1',
+      [nombre, nombre],
+    );
+    const insList = ins as Array<{ id: number }>;
+    // Fallback por LIKE si el nombre exacto no coincide con la columna usada.
+    let insumoId = insList.length ? Number(insList[0].id) : NaN;
+    if (!insumoId || Number.isNaN(insumoId)) {
+      const [like] = await conn.query(
+        'SELECT insumo_id AS id FROM insumo WHERE insumo_descripcion LIKE ? OR insumo_nombre LIKE ? LIMIT 1',
+        ['%' + nombre + '%', '%' + nombre + '%'],
+      );
+      const likeList = like as Array<{ id: number }>;
+      if (!likeList.length) return null;
+      insumoId = Number(likeList[0].id);
+    }
+    const [alm] = await conn.query(
+      'SELECT almacen_id AS id FROM almacen WHERE almacen_descripcion LIKE ? LIMIT 1',
+      ['%' + almacenDesc + '%'],
+    );
+    const almList = alm as Array<{ id: number }>;
+    if (!almList.length) return null;
+    return { insumoId, almacenId: Number(almList[0].id) };
+  } catch {
+    return null;
+  } finally {
+    await conn.end();
+  }
+}
+
+/**
+ * Último costo de ENTRADA viva (tipo=1, cantidad>0) del Kardex.
+ * Es lo que el campo `costo` refleja cuando el baseline c106=1 (última compra).
+ */
+export async function leerUltimoCostoEntrada(
+  insumoId: number, almacenId: number, espejo: boolean,
+): Promise<number | null> {
+  const tabla = espejo ? 'movimientoalmacenconsumible' : 'movimientoalmaceninsumo';
+  const conn = await mysql.createConnection(DB);
+  try {
+    const [rows] = await conn.query(
+      'SELECT ' + tabla + '_costooperacion AS c FROM ' + tabla + ' ' +
+        "WHERE insumo_id = ? AND almacen_id = ? AND " + tabla + "_tipo = 1 AND " +
+        tabla + '_cantidad > 0 AND (' + tabla + "_fueeliminado IS NULL OR " +
+        tabla + "_fueeliminado != '1') " +
+        'ORDER BY ' + tabla + '_id DESC LIMIT 1',
+      [insumoId, almacenId],
+    );
+    const list = rows as Array<{ c: number }>;
+    if (!list.length) return null;
+    return Math.round(Number(list[0].c) * 1000) / 1000;
+  } catch {
+    return null;
+  } finally {
+    await conn.end();
+  }
+}
+
+/**
+ * Aplica el baseline al costo esperado del campo `costo`:
+ * - c106=1: el campo refleja la última compra (no el PPP).
+ * - c72=1: el campo refleja el valor sin impuestos.
+ * Retorna el costo efectivo contra el que comparar + nota para el log.
+ */
+export async function costoEfectivoEsperado(
+  nombre: string, almacenDesc: string, costoPPP: number, costoSinImp: number | undefined,
+  espejo: boolean,
+): Promise<{ costo: number; nota: string }> {
+  const bl = getBaseline();
+  if (bl.c72 === 0 && bl.c106 === 0) return { costo: costoPPP, nota: 'baseline-0/0:PPP' };
+  if (bl.c106 === 1) {
+    const ids = await resolverIdsSQL(nombre, almacenDesc);
+    if (ids) {
+      const ultimo = await leerUltimoCostoEntrada(ids.insumoId, ids.almacenId, espejo);
+      if (ultimo !== null) return { costo: ultimo, nota: 'c106=1:última-compra' };
+    }
+    return { costo: costoPPP, nota: 'c106=1:sin-entradas,PPP' };
+  }
+  if (bl.c72 === 1 && costoSinImp !== undefined) {
+    return { costo: costoSinImp, nota: 'c72=1:display-sin-imp' };
+  }
+  return { costo: costoPPP, nota: 'baseline-0/0:PPP' };
+}
+
 /** Oráculo para insumos normales: stock + PPP (+PPP sin impuestos) vía endpoint autoritativo. */
 export async function assertStockInsumo(
   page: Page,
@@ -43,11 +175,15 @@ export async function assertStockInsumo(
   esperadoCosto: number,
   esperadoSinImp?: number,
 ): Promise<Veredicto> {
-  const r = await validarStock(page, nombre, esperadoStock, esperadoCosto, esperadoSinImp);
+  // Principal = Almacen Principal para este oráculo.
+  const eff = await costoEfectivoEsperado(nombre, 'Almacen Principal', esperadoCosto, esperadoSinImp, false);
+  const r = await validarStock(page, nombre, esperadoStock, eff.costo, esperadoSinImp);
+  const esperado = fmtStock(esperadoStock, esperadoCosto, esperadoSinImp) +
+    (eff.nota.startsWith('baseline-0/0') ? '' : ' [' + eff.nota + ']');
   return {
     paso: r.paso,
     ok: r.ok,
-    esperado: fmtStock(r.esperado.cantidad, r.esperado.costo, r.esperado.costoSinImp),
+    esperado,
     real: r.real ? fmtStock(r.real.stock, r.real.costo, r.real.costoSinImp) : undefined,
     error: r.error,
   };
@@ -66,7 +202,9 @@ export async function assertStockInsumoEnAlmacen(
   esperadoSinImp?: number,
 ): Promise<Veredicto> {
   const paso = 'validarStock("' + nombre + '" @ ' + almacenDesc + ')';
-  const esperado = fmtStock(esperadoStock, esperadoCosto, esperadoSinImp);
+  const eff = await costoEfectivoEsperado(nombre, almacenDesc, esperadoCosto, esperadoSinImp, false);
+  const esperado = fmtStock(esperadoStock, esperadoCosto, esperadoSinImp) +
+    (eff.nota.startsWith('baseline-0/0') ? '' : ' [' + eff.nota + ']');
   try {
     const r: { stock: number; costo: number; costoSinImp: number } | null = await page.evaluate(async (args) => {
       try {
@@ -100,7 +238,7 @@ export async function assertStockInsumoEnAlmacen(
     }, { nombre, almacen: almacenDesc });
     if (!r) return { paso, ok: false, esperado, error: 'Insumo o lectura nula.' };
     const real = fmtStock(r.stock, r.costo, r.costoSinImp);
-    let ok = Math.abs(r.stock - esperadoStock) < TOLERANCIA && Math.abs(r.costo - esperadoCosto) < TOLERANCIA;
+    let ok = Math.abs(r.stock - esperadoStock) < TOLERANCIA && Math.abs(r.costo - eff.costo) < TOLERANCIA;
     if (ok && esperadoSinImp !== undefined) {
       ok = Math.abs((r.costoSinImp || 0) - esperadoSinImp) < TOLERANCIA;
     }
@@ -163,7 +301,9 @@ export async function assertStockConsumible(
   esperadoSinImp?: number,
 ): Promise<Veredicto> {
   const paso = 'validarStockConsumible("' + nombre + '")';
-  const esperado = fmtStock(esperadoStock, esperadoCosto, esperadoSinImp);
+  const eff = await costoEfectivoEsperado(nombre, 'Almacen Principal', esperadoCosto, esperadoSinImp, true);
+  const esperado = fmtStock(esperadoStock, esperadoCosto, esperadoSinImp) +
+    (eff.nota.startsWith('baseline-0/0') ? '' : ' [' + eff.nota + ']');
   try {
     const r = await leerStockConsumible(insumoId, almacenId);
     // Sin movimientos y esperado 0/0 (alta fresca): el espejo vacío ES el cero.
@@ -173,7 +313,7 @@ export async function assertStockConsumible(
     }
     const real = fmtStock(r.stock, r.costo, r.costoSinImp);
     let ok =
-      Math.abs(r.stock - esperadoStock) < TOLERANCIA && Math.abs(r.costo - esperadoCosto) < TOLERANCIA;
+      Math.abs(r.stock - esperadoStock) < TOLERANCIA && Math.abs(r.costo - eff.costo) < TOLERANCIA;
     if (ok && esperadoSinImp !== undefined) {
       ok = Math.abs((r.costoSinImp || 0) - esperadoSinImp) < TOLERANCIA;
     }

@@ -54,6 +54,21 @@ export function describirPaso(r: FilaReporte): string {
 
   if (tiene('obtenerEstadoGlobal')) return 'Se consulta el estado global del Kardex para fijar el punto de partida de la validación del bloque.';
   if (tiene('precondición')) return 'Se verifica que el bloque anterior dejó el estado exacto que este bloque necesita antes de operar.';
+  if (tiene('precondición existencia')) return 'Se verifica que existen los maestros Carne QA, Exonerado QA y Caja de Empaque QA para el contraste.';
+  if (tiene('36. baseline')) return 'Se captura el baseline del entorno (configs 72 y 106) como referencia para los toggles y la restauración.';
+  if (tiene('37. c72=1')) return 'Con display sin-impuestos activo, se verifica que el campo costo refleja el valor sin impuestos' + (real ? ' (' + real + ')' : '') + '.';
+  if (tiene('38. c106=1: costo==última-compra')) return 'Con display de última compra activo, se verifica que el campo costo refleja la última entrada' + (real ? ' (' + real + ')' : '') + '.';
+  if (tiene('38. c106=1: sin-imp sigue expuesto')) return 'Se verifica que el costo sin impuestos sigue exponiéndose en paralelo aunque cambie el display.';
+  if (tiene('39. flags restaurados')) return 'Se restauran los flags 72/106 a su baseline en bloque finally, garantizando un entorno consistente.';
+  if (tiene('40. editarCompra importado')) return 'Se edita el precio de la compra del importado (80@15 → 80@18): al ser entrada única, el PPP queda en S/ 18 exacto.';
+  if (tiene('41. editarGuia-2')) return 'Se edita la cantidad de la guía-2 (30@22 → 20@22): el sistema revierte la entrada y la re-aplica, recalculando el PPP hacia adelante.';
+  if (tiene('42. editarOC-2')) return 'Se edita el precio pactado de la OC-2 (22 → 25): solo cambia el pacto, sin tocar stock ni Kardex.';
+  if (tiene('42. auditarOC')) return 'Se verifica que el pacto actualizado quedó persistido (importe S/ 750) en el detalle de la OC.';
+  if (tiene('43. editarSolicitud')) return 'Se edita la cantidad de la solicitud (50 → 40 kg): documento sin Kardex, solo cambia el pedido.';
+  if (tiene('43. verificarSolicitud')) return 'Se relee la solicitud y se confirma la cantidad actualizada' + (real ? ' (' + real + ')' : '') + '.';
+  if (tiene('44. editarCompra cantidad 0')) return 'Se intenta editar una compra con cantidad cero: el sistema debe bloquearla por validación de detalle, sin mover stock.';
+  if (tiene('45. editarCompra anulada')) return 'Se intenta editar una compra ya anulada: el sistema debe bloquearla por estado, sin mover stock.';
+  if (tiene('post-restore')) return 'Tras restaurar, se confirma que el display volvió a los valores del baseline.';
   if (tiene('abortado')) return 'Se aborta el bloque porque la precondición falló; no se ejecuta ningún caso para no contaminar la cadena.';
   if (tiene("crearInsumo('Carne QA')")) return 'Se da de alta el insumo "Carne QA" con 0 kg en el Almacén Principal' + (id ? ', generándose con id=' + id : '') + '. Es el insumo que se seguirá en toda la matriz.';
   if (tiene("crearInsumo('Importado QA')") || tiene("crearInsumo('Insumo Importado QA')")) return 'Se da de alta el insumo "Insumo Importado QA" con 0 kg en el Almacén Principal' + (id ? ' (id=' + id + ')' : '') + ', para probar el desvío externo.';
@@ -337,9 +352,23 @@ const COLUMNAS: Columna[] = [
   { key: 'desc', header: 'Descripción', width: 130 },
 ];
 
+/**
+ * Helvetica (WinAnsi) no trae → ni × (salen como mojibake en el PDF).
+ * Se sanean solo aquí; el HTML conserva el Unicode original.
+ */
+function sanearPDF(s: string): string {
+  return s
+    .replace(/→/g, '->')
+    .replace(/×/g, 'x')
+    .replace(/[–—]/g, '-')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/✓/g, 'OK');
+}
+
 function celdaTexto(r: FilaReporte, key: Columna['key'], idx: number): string {
   if (key === 'num') return String(idx + 1);
-  if (key === 'desc') return describirPaso(r);
+  if (key === 'desc') return sanearPDF(describirPaso(r));
   if (key === 'fase') return r.fase;
   if (key === 'paso') return r.paso;
   if (key === 'estado') return r.ok ? 'Éxito' : 'Fallo';
@@ -428,7 +457,7 @@ function dibujarFila(doc: PDFKit.PDFDocument, r: FilaReporte, y: number, h: numb
   doc.rect(PDF.margin, y, 3, h).fill(r.ok ? PDF.greenFg : PDF.redFg);
   doc.fillColor(PDF.cellInk).fontSize(PDF.fontSize.cell).font('Helvetica');
   for (const c of COLUMNAS) {
-    const txt = celdaTexto(r, c.key, idx);
+    const txt = sanearPDF(celdaTexto(r, c.key, idx));
     const align = NUMERICAS.has(c.key) ? 'right' : 'left';
     if (c.key === 'estado') {
       doc.fillColor(r.ok ? PDF.greenFg : PDF.redFg).font('Helvetica-Bold');
