@@ -3,3 +3,9 @@ dist/
 *.xlsx
 !plantilla.xlsx
 restaurant.sql
+
+# artefacto que deja la app (AngularJS) al volcar un payload de requerimiento
+borrar.json
+
+# volcados de diagnostico que escribe el bot (muestras de scope / NC)
+data/debug_*.json

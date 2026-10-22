@@ -338,10 +338,13 @@ export async function assertDetalleCompraSinImpuestos(
   afecto: boolean,
 ): Promise<Veredicto> {
   const paso = 'auditarDetalleSinImp(compra=' + compraId + ')';
-  const precioSin = afecto
-    ? Math.round((precio / getDivisorIgv()) * 1000) / 1000
-    : precio;
-  const subtotalSin = Math.round(precioSin * cantidad * 1000) / 1000;
+  // El precio unitario sin impuestos NO se redondea a 3 decimales para el
+  // subtotal: el backend guarda 6 decimales y el redondeo intermedio genera
+  // diferencias mayores que la tolerancia (p.ej. 5/1.18 x 100 = 423.729 vs
+  // 4.237 x 100 = 423.70).
+  const precioSinExacto = afecto ? precio / getDivisorIgv() : precio;
+  const precioSin = Math.round(precioSinExacto * 1000) / 1000;
+  const subtotalSin = Math.round(precioSinExacto * cantidad * 1000) / 1000;
   const esperado = 'precio_sin_imp=' + precioSin + '; subtotal_sin_imp=' + subtotalSin;
   const conn = await mysql.createConnection(DB);
   try {

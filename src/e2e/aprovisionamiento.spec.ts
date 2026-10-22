@@ -8,7 +8,7 @@ import { crearInsumo, navegar, esperarEndpoint, leerRespuesta, cerrarModales } f
 import { registrarCompra, anularCompra, registrarNotaCredito } from '../compras';
 import { obtenerEstadoGlobal } from '../kardex';
 import { FilaReporte } from '../types';
-import { QA, QA_EXONERADO, EstadoSuite, ppp, pppSin, precioSin } from './fixtures';
+import { QA, QA_EXONERADO, QA_TRASLADO, EstadoSuite, ppp, pppSin, precioSin } from './fixtures';
 import { assertStockInsumo } from './oracle';
 import { generarHtmlReporte, generarPdfReporte, resumirReporte } from '../reporte';
 import { logFila, logVeredicto, abrirStandalone, diag, DEBUG } from './harness';
@@ -330,7 +330,12 @@ export async function runBloque1(page: Page, estado: EstadoSuite, reporte: FilaR
     log({ fase: F, paso: '1. kardex.obtenerEstadoGlobal()', ok: true, real: JSON.stringify(g) });
   } catch (e) { log({ fase: F, paso: '1. kardex.obtenerEstadoGlobal()', ok: false, error: String(e) }); }
   try {
-    const r = await crearInsumo(page, { nombre: QA.insumoCarne, stockApertura: 0, costoApertura: 0, almacen: QA.almacenCentral });
+    // Control de stock en Central (1) y Produccion (18): los Bloques 3-8 trasladan
+    // 'Carne QA' entre ambos almacenes y el oráculo lee cada uno por separado.
+    const r = await crearInsumo(page, {
+      nombre: QA.insumoCarne, stockApertura: 0, costoApertura: 0,
+      almacen: QA.almacenCentral, almacenes: [String(QA_TRASLADO.almacenSucursalId)],
+    });
     log({ fase: F, paso: "1. crearInsumo('Carne QA') 0kg", ok: r.ok, real: r.id !== undefined ? 'id=' + r.id : undefined, error: r.error });
     if (r.ok) estado.insumoId = r.id;
   } catch (e) { log({ fase: F, paso: "1. crearInsumo('Carne QA')", ok: false, error: String(e) }); }

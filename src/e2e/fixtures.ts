@@ -7,7 +7,7 @@ export const QA = {
   insumoCarne: 'Carne QA',
   proveedor: 'GRUPO SEVEN SEAS SAC',
   almacenCentral: 'Almacen Principal',
-  local: 'CD Logistico',
+  local: 'CD Logístico',
   moneda: 'Soles',
   // Solicitud / OC (casos 2-3)
   solicitudCantidad: 50,

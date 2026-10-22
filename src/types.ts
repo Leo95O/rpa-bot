@@ -117,6 +117,8 @@ export interface FilaReporte {
   fase: string;
   paso: string;
   ok: boolean;
+  /** true = la verificación NO se ejecutó (flujo stub): no cuenta como éxito ni como fallo. */
+  pendiente?: boolean;
   esperado?: string;
   real?: string;
   error?: string;

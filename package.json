@@ -17,6 +17,7 @@
     "test:bloque7": "ts-node src/e2e/contraste.spec.ts",
     "test:bloque8": "ts-node src/e2e/ediciones.spec.ts",
     "test:suite": "ts-node src/e2e/suite.ts",
+    "test:compras": "ts-node src/e2e/compras/suite.ts",
     "checklist": "ts-node src/e2e/checklist.ts"
   },
   "dependencies": {

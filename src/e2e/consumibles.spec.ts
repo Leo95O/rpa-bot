@@ -23,7 +23,13 @@ const F = 'Bloque 2: Consumibles';
 // El detalle backend sale de Merma.obtenerFormatoDetalleMermaBackend(fila estilo compra).
 // ---------------------------------------------------------------------------
 
-async function registrarSalidaConsumible(
+/**
+ * Salida de un consumible por merma (POST merma/agregarMerma).
+ * Shape de nuevamerma.controller.js:332-367: {detallemerma, merma, movimientoEmulacion}.
+ * El detalle backend sale de Merma.obtenerFormatoDetalleMermaBackend(fila estilo compra).
+ * Exportada: la usa también el flujo F13 del módulo de Compras.
+ */
+export async function registrarSalidaConsumible(
   page: Page, nombre: string, cantidad: number, razon: string,
 ): Promise<{ ok: boolean; id?: number; error?: string; raw?: unknown }> {
   const endpoint = esperarEndpoint(page, 'merma/agregarMerma', 45000).catch(() => null);

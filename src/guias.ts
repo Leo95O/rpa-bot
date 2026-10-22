@@ -83,10 +83,27 @@ export async function registrarGuia(page: Page, p: ParamGuia): Promise<Resultado
         SecurityService.getUsuarioId(),
       );
       const locales = (respLocales && respLocales.data) || [];
+      // Espejo de bot.ts (registrarCompra): el backend devuelve el nombre del
+      // local en UTF-8 leído como Latin-1 ("CD LogÃ­stico"). Se re-decodifica
+      // antes de comparar y, si no hay coincidencia, se usa el local de la
+      // sesión. Mantener sincronizado con bot.ts.
+      const fixMojibake = (s: any): string => {
+        const str = String(s || '');
+        if (!str.includes('Ã')) return str;
+        try {
+          const bytes = new Uint8Array(str.length);
+          for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i) & 0xff;
+          return new TextDecoder('utf-8').decode(bytes);
+        } catch {
+          return str;
+        }
+      };
+      const norm = (s: any): string =>
+        fixMojibake(s).normalize('NFD').replace(/[^\x00-\x7F]/g, '').toLowerCase();
       const local = locales.find(
-        (l: any) => (l.local_descripcion || l.local_nombre) === (args.local || 'CD Logistico'),
+        (l: any) => norm(l.local_descripcion || l.local_nombre) === norm(args.local || 'CD Logistico'),
       );
-      if (!local) return { ok: false, error: 'Local no encontrado.' };
+      if (!local) return { ok: false, error: 'Local no encontrado: ' + (args.local || 'CD Logistico') };
       vm.guia.localSeleccionado = local;
       vm.guia.local_id = local.local_id;
       vm.fnCambioLocal(local);

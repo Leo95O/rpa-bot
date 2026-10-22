@@ -437,10 +437,19 @@ export async function modificarCompra(
   };
 }
 
+export interface DevolucionNC {
+  nombre: string;
+  insumoId?: number;
+  cantidad: number;
+  /** Descuento UNITARIO: solo para la rama PRECIO (rebaja). */
+  descuentoUnitario?: number;
+}
+
 export async function registrarNotaCredito(
   page: Page,
   compraId: number,
-  devoluciones: Array<{ nombre: string; insumoId?: number; cantidad: number }>,
+  devoluciones: DevolucionNC[],
+  opts: { porPrecio?: boolean } = {},
 ): Promise<ResultadoOperacionE2E> {
   const inyeccion: { ok: boolean; id?: number; error?: string; muestra?: unknown } = await page.evaluate(
     async (args) => {
@@ -547,6 +556,7 @@ export async function registrarNotaCredito(
         }
 
         const detalle = [];
+        let totalDescuento = 0;
         for (const d of args.devoluciones) {
           const item = productos.find((x: any) => coincide(x, d));
           if (!item) {
@@ -561,35 +571,67 @@ export async function registrarNotaCredito(
               },
             };
           }
-          detalle.push({
-            detallenotacreditocompra_cantidad: d.cantidad,
-            detallenotacreditocompra_montodescuento: 0,
-            detallenotacreditocompra_precio: item.item_precio,
-            detallecompra_costo: item.item_precio,
-            detallecompra_cantidad: item.item_cantidad,
-            detallecompra_descuento: item.item_descuento || 0,
-            detallecompra_importe: item.item_total,
-            detallecompra_id: item.detallecompra_id,
-            presentacionactivo_id: null,
-            producto_id: item.item_tipo === 2 ? item.item_id : null,
-            presentacioninsumo_id: item.item_tipo !== 2 ? item.presentacion_id : null,
-            item_descripcion: item.item_descripcion,
-            almacen_id: item.almacen_id,
-            item_total: item.item_total,
-            productoDescontar: d.cantidad > 0 ? PARAM.SI : PARAM.NO,
-          });
+          if (args.porPrecio) {
+            // Rama PRECIO (rebaja): esPorDescuentoEnItems=SI, cantidad 0 y
+            // descuento unitario > 0 (modalRegistroNotaCreditoCtrl.js:594-655).
+            // El backend clona la ENTRADA_COMPRA origen con
+            // nuevoCosto=(importeOrig-desc*c cant)/cant y NO mueve stock.
+            const descUnit = Number(d.descuentoUnitario || 0);
+            if (descUnit <= 0) {
+              return { ok: false, error: 'La NC por precio exige descuentoUnitario > 0.' };
+            }
+            if (descUnit > Number(item.item_precio)) {
+              return { ok: false, error: 'No puedes asignar un descuento mayor al costo.' };
+            }
+            totalDescuento += descUnit * Number(item.item_cantidad);
+            detalle.push({
+              detallenotacreditocompra_cantidad: 0,
+              detallenotacreditocompra_montodescuento: descUnit,
+              detallenotacreditocompra_precio: item.item_precio,
+              detallecompra_costo: item.item_precio,
+              detallecompra_cantidad: item.item_cantidad,
+              detallecompra_descuento: item.item_descuento || 0,
+              detallecompra_importe: item.item_total,
+              detallecompra_id: item.detallecompra_id,
+              presentacionactivo_id: null,
+              producto_id: item.item_tipo === 2 ? item.item_id : null,
+              presentacioninsumo_id: item.item_tipo !== 2 ? item.presentacion_id : null,
+              item_descripcion: item.item_descripcion,
+              almacen_id: item.almacen_id,
+              item_total: item.item_total,
+              productoDescontar: PARAM.SI,
+            });
+          } else {
+            detalle.push({
+              detallenotacreditocompra_cantidad: d.cantidad,
+              detallenotacreditocompra_montodescuento: 0,
+              detallenotacreditocompra_precio: item.item_precio,
+              detallecompra_costo: item.item_precio,
+              detallecompra_cantidad: item.item_cantidad,
+              detallecompra_descuento: item.item_descuento || 0,
+              detallecompra_importe: item.item_total,
+              detallecompra_id: item.detallecompra_id,
+              presentacionactivo_id: null,
+              producto_id: item.item_tipo === 2 ? item.item_id : null,
+              presentacioninsumo_id: item.item_tipo !== 2 ? item.presentacion_id : null,
+              item_descripcion: item.item_descripcion,
+              almacen_id: item.almacen_id,
+              item_total: item.item_total,
+              productoDescontar: d.cantidad > 0 ? PARAM.SI : PARAM.NO,
+            });
+          }
         }
 
         const payload = {
           local_id: compra.local_id,
           compra_id: args.compraId,
           notacreditocompra_fecha: compra.compra_fecha,
-          notacreditocompra_total: 0,
+          notacreditocompra_total: args.porPrecio ? totalDescuento : 0,
           notacreditocompra_tipodoc: compra.compra_tipodoc,
           notacreditocompra_numdoc: 'NC-E2E',
           notacreditocompra_seriedoc: '001',
           esPorDescuentoGeneral: PARAM.NO,
-          esPorDescuentoEnItems: PARAM.NO,
+          esPorDescuentoEnItems: args.porPrecio ? PARAM.SI : PARAM.NO,
           compra_tipo: compra.compra_tipo || '1',
           detallenotacreditocompra: detalle,
         };
@@ -601,7 +643,7 @@ export async function registrarNotaCredito(
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }
     },
-    { compraId, devoluciones },
+    { compraId, devoluciones, porPrecio: !!opts.porPrecio },
   );
 
   if (!inyeccion.ok) {

@@ -460,12 +460,42 @@ export async function registrarCompra(page: Page, compra: CompraAgrupada): Promi
           SecurityService.getUsuarioId(),
         );
         const locales = respLocales.data || [];
+        // El backend devuelve el nombre del local en UTF-8 leído como Latin-1
+        // ("CD LogÃ­stico"). Sin re-decodificarlo, la normalización solo quita
+        // tildes ("logastico" != "logistico"), el local no se encuentra y
+        // TODAS las compras del Bloque 1 se caen.
+        // Nota: este código corre en el navegador (page.evaluate), por eso la
+        // conversión latin1->utf8 se hace con TextDecoder y no con Buffer.
+        const fixMojibake = (s: any): string => {
+          const str = String(s || '');
+          if (!str.includes('Ã')) return str;
+          try {
+            const bytes = new Uint8Array(str.length);
+            for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i) & 0xff;
+            return new TextDecoder('utf-8').decode(bytes);
+          } catch {
+            return str;
+          }
+        };
+        const norm = (s: any): string =>
+          fixMojibake(s).normalize('NFD').replace(/[^\x00-\x7F]/g, '').toLowerCase();
         const local = locales.find(
-          (l: any) => (l.local_descripcion || l.local_nombre) === cab.local,
+          (l: any) => norm(l.local_descripcion || l.local_nombre) === norm(cab.local),
         );
-        if (!local) return { ok: false, error: 'Local no encontrado: ' + cab.local };
-        localId = local.local_id;
-        vm.fnCambioLocal(local);
+        if (!local && locales.length) {
+          // Fallback robusto: si no encuentra por nombre, usa el local de la
+          // sesión (mismo local con el que el ERP está operando).
+          const sessionLocalId = SecurityService.getLocalId();
+          const fallback =
+            locales.find((l: any) => String(l.local_id) === String(sessionLocalId)) || locales[0];
+          localId = fallback.local_id;
+          vm.fnCambioLocal(fallback);
+        } else if (!local) {
+          return { ok: false, error: 'Local no encontrado: ' + cab.local };
+        } else {
+          localId = local.local_id;
+          vm.fnCambioLocal(local);
+        }
         await esperar(
           () =>
             vm.compra.monedaList &&
@@ -756,6 +786,13 @@ export interface ParamCrearInsumo {
   stockApertura: number;
   costoApertura: number;
   almacen?: string;
+  /**
+   * Almacenes ADICIONALES con control de stock (descripción o id).
+   * El maestro 'Carne QA' lo crea el Bloque 1 y los Bloques 3-8 lo mueven entre
+   * Almacen Principal (1) y Produccion (18): sin control en ambos, el traslado
+   * no genera fila en `almacenproductoinsumo` y el oráculo no ve el stock.
+   */
+  almacenes?: string[];
   mermaCompra?: number;
   equivalencia?: { cantidad: number; unidadMedida: string };
   margenGanancia?: number;
@@ -811,6 +848,14 @@ export async function crearInsumo(
         stockMinimo: 0,
         stockMaximo: 0,
       },
+      ...(p.almacenes || []).map((almacen) => ({
+        almacen,
+        controlarStock: true,
+        stockApertura: 0,
+        costoApertura: 0,
+        stockMinimo: 0,
+        stockMaximo: 0,
+      })),
     ],
     equivalencia: p.equivalencia,
   };

@@ -14,14 +14,19 @@ import { FilaReporte } from './types';
 export interface ResumenReporte {
   exitosos: number;
   fallidos: number;
+  pendientes: number;
   total: number;
   fecha: string;
 }
 
 export function resumirReporte(reporte: FilaReporte[]): ResumenReporte {
-  const exitosos = reporte.filter((r) => r.ok).length;
-  const fallidos = reporte.filter((r) => !r.ok).length;
-  return { exitosos, fallidos, total: reporte.length, fecha: new Date().toLocaleString() };
+  // Los flujos stub (pendientes) NO son successes: no se ejecutaron, así que
+  // no pueden inflar el verde ni contarse como fallos del ERP.
+  const pendientes = reporte.filter((r) => r.pendiente).length;
+  const ejecutadas = reporte.filter((r) => !r.pendiente);
+  const exitosos = ejecutadas.filter((r) => r.ok).length;
+  const fallidos = ejecutadas.length - exitosos;
+  return { exitosos, fallidos, pendientes, total: reporte.length, fecha: new Date().toLocaleString() };
 }
 
 // ---------------------------------------------------------------------------
@@ -38,8 +43,180 @@ function num(txt: string | undefined, re: RegExp): string | null {
 
 function stockCosto(txt: string | undefined): { stock: string; costo: string; sinImp: string | null } | null {
   if (!txt) return null;
-  const m = /stock=([-\d.]+);\s*costo=([-\d.]+)(;\s*costo_sin_imp=([-\d.]+))?/.exec(txt);
-  return m ? { stock: m[1], costo: m[2], sinImp: m[4] ?? null } : null;
+  // Acepta las dos convenciones: "costo_sin_imp=" (Bloques 1-8) y "sinImp=" (flujos F1-F13).
+  const m = /stock=([-\d.]+);\s*costo=([-\d.]+)(?:;\s*(?:costo_sin_imp|sinImp|costosinimpuesto)=([-\d.]+))?/.exec(txt);
+  return m ? { stock: m[1], costo: m[2], sinImp: m[3] ?? null } : null;
+}
+
+/**
+ * Capa ejercitada por cada fila:
+ *  - `FRONT->API`: el bot maneja la vista (controlador AngularJS) y la llamada
+ *    llega al backend REST; el veredicto dice si el backend aceptó y calculó bien.
+ *  - `API/BD`: el bot lee el estado autoritativo (endpoint `obtenerStockYCosto`
+ *    o SQL) y compara contra la fórmula esperada.
+ *  - `NO EJECUTADO`: flujo stub (F6-F13), sin ejecución real todavía.
+ */
+export function capaDe(r: FilaReporte): string {
+  const p = r.paso;
+  // El flag `pendiente` es la fuente de verdad (lo emite el flujo stub).
+  if (r.pendiente) return 'NO EJECUTADO';
+  if (/^F1[0-2]\./.test(p)) return 'NO EJECUTADO';
+  if (
+    /assert|validar|verificar|auditar|precondici|obtenerEstadoGlobal|kardex|baseline|c72=|c106=|flags restaurados|post-restore|OP referencia|referencia requerimiento/i.test(
+      p,
+    )
+  ) {
+    return 'API/BD';
+  }
+  return 'FRONT->API';
+}
+
+/** Datos de cada flujo de Compras: alimentan la columna Descripción del reporte. */
+const FLUJOS_COMPRAS: Record<string, { titulo: string; detalle: string; efecto: string }> = {
+  F1: { titulo: 'Solicitud → OC → Compra (canje clásico, afecto con IGV)', detalle: '50 kg de "Carne QA" a S/ 20/kg', efecto: '' },
+  F2: { titulo: 'Solicitud → OC → Guía → Compra (físico anticipado)', detalle: '30 kg de "Carne QA" a S/ 22/kg', efecto: '' },
+  F3: { titulo: 'OC manual → Compra (sin solicitud)', detalle: '100 kg de "Arroz QA" a S/ 4/kg', efecto: '' },
+  F4: { titulo: 'Compra directa (sin documentos previos)', detalle: '50 kg de "Carne QA" a S/ 30/kg', efecto: '' },
+  F5: { titulo: 'Compra exonerada (sin IGV)', detalle: '10 kg de "Verdura QA" a S/ 10/kg', efecto: '' },
+  F6: {
+    titulo: 'Nota de Crédito por cantidad (devolución)',
+    detalle: '10 kg sobre la compra de F4',
+    efecto: 'SÍ mueve el stock: SALIDA_NOTA_CREDITO_COMPRA, Central 130 -> 120 kg con el PPP congelado en 24.308.',
+  },
+  F7: {
+    titulo: 'Nota de Crédito por precio (rebaja)',
+    detalle: '10 kg de "Verdura QA" con descuento',
+    efecto: 'NO mueve el stock: clona la línea con nuevoCosto 8.00 y marca el origen como fueeliminado; el stock queda en 10 kg con PPP 8.000.',
+  },
+  F8: {
+    titulo: 'Modificar compra (hacia adelante)',
+    detalle: 'la compra de F3 (100 kg de Arroz QA)',
+    efecto: 'SÍ cambia el costo: la cantidad no se mueve (100 kg) pero el PPP se re-promedia hacia adelante (4.000 -> 5.000) y los impuestos se re-desgravan.',
+  },
+  F9: {
+    titulo: 'Anular compra (LIFO, con devolución de stock)',
+    detalle: 'la compra modificada en F8',
+    efecto: 'SÍ mueve el stock: contra-salidas que devuelven las 100 kg de Arroz QA y restauran el PPP previo; además desvincula la OC (queda APROBADO) y anula sus NC.',
+  },
+  F10: {
+    titulo: 'OC distribuida multi-local',
+    detalle: 'una OC y dos destinos',
+    efecto: 'SÍ mueve el stock: la guía de cada local prorratea la cantidad y el precio (round(importe/cant x cantLocal)), generando entradas en los dos almacenes.',
+  },
+  F11: {
+    titulo: 'Crédito + cuotas + amortización',
+    detalle: 'Arroz 200 kg a S/ 4/kg al crédito',
+    efecto: 'NO mueve el stock (solo CxP, cuotas y límite de crédito del proveedor).',
+  },
+  F12: {
+    titulo: 'Compra de servicio + compra rápida (sin Kardex)',
+    detalle: 'intangible + caja chica',
+    efecto: 'NO debe mover el stock: cero ENTRADA_* en el Kardex; solo egreso/CxP y el detalle de la compra manual.',
+  },
+  F13: {
+    titulo: 'Consumible y producto de reventa',
+    detalle: 'Caja de Empaque 200 u @ 0.5 y Gaseosa',
+    efecto: 'SÍ mueve el stock: el consumible va a la tabla espejo (0 -> 200 u, PPP 0.500; la salida de 50 lo deja en 150 con el costo congelado); el producto Pack x 6 convierte 12 packs a 72 unidades; el producto sin control de stock no genera movimiento.',
+  },
+};
+
+/** Explicación de un paso de los flujos de Compras (F1-F13). */
+function describirFlujoCompras(p: string, r: FilaReporte): string | null {
+  const m = /^F(\d+)\.([a-z]+)$/.exec(p);
+  if (!m) return null;
+  const fid = 'F' + m[1];
+  const acc = m[2];
+  const f = FLUJOS_COMPRAS[fid];
+  const titulo = f ? f.titulo : 'Flujo de Compras';
+  const detalle = f ? f.detalle : '';
+  const id = num(r.real, /id=(\d+)/);
+
+  // Solo si el flujo viene marcado como pendiente (stub) se anuncia como tal.
+  if (r.pendiente) {
+    return (
+      'PENDIENTE (stub): el flujo ' + fid + ' (' + titulo + ') tiene el análisis matemático implementado en ' +
+      'src/e2e/compras/analisis/, pero aún no se ejecuta contra la app, así que NO hay verificación de stock ni de costo. ' +
+      'Lo que debe comprobar: ' + (f ? f.efecto : 'el efecto sobre el Kardex y el PPP.') +
+      (id ? ' Referencia del documento: id=' + id + '.' : '')
+    );
+  }
+  switch (fid) {
+    case 'F6':
+      if (acc === 'nc') {
+        return 'Se registra la Nota de Crédito POR CANTIDAD sobre la compra de F4: 10 kg de "Carne QA"' +
+          (id ? ' (NC id=' + id + ')' : '') + '. El backend genera la SALIDA_NOTA_CREDITO_COMPRA: baja el stock y CONGELA el PPP (una salida no promedia).';
+      }
+      break;
+    case 'F7':
+      if (acc === 'nc') {
+        return 'Se registra la Nota de Crédito POR PRECIO (rebaja de S/ 2 por unidad) sobre la compra de F5: 10 kg de "Verdura QA"' +
+          (id ? ' (NC id=' + id + ')' : '') + '. El backend clona la ENTRADA_COMPRA origen con nuevoCosto 8.00 y la marca fueeliminado: NO sale stock, el costo baja.';
+      }
+      break;
+    case 'F8':
+      if (acc === 'modificar') {
+        return 'Se modifica la compra de F3 (100 kg de "Arroz QA" de S/ 4 a S/ 5 por unidad)' +
+          (id ? ' (compra id=' + id + ')' : '') + ': la cantidad no se mueve, el PPP se re-promedia hacia adelante y los impuestos se re-desgravan.';
+      }
+      break;
+    case 'F9':
+      if (acc === 'anular') {
+        return 'Se anula (LIFO) la compra modificada en F8 con devolución de stock' +
+          (id ? ' (compra id=' + id + ')' : '') + ': el stock vuelve al valor previo y el PPP se restaura; la OC queda desvinculada (APROBADO).';
+      }
+      break;
+    case 'F10':
+      if (acc === 'distribuida') {
+        return 'Se canjean juntas dos solicitudes (10 kg del local 1 y 20 kg del local 2) con "Activar distribución por local" = SÍ' +
+          (id ? ' (OC id=' + id + ')' : '') + ': el backend crea 1 OC consolidada de 30 kg y una fila de distribución por local (10 + 20); la guía de cada local prorratea cantidad y precio.';
+      }
+      break;
+    case 'F11':
+      if (acc === 'credito') {
+        return 'Se registra la compra AL CRÉDITO de 200 kg de "Arroz QA" (S/ 800) en 2 cuotas de S/ 400' +
+          (id ? ' (compra id=' + id + ')' : '') + ': la mercadería entra igual al stock, pero el backend genera el CxP (una fila por cuota) y descuenta el límite de crédito del proveedor.';
+      }
+      break;
+    case 'F12':
+      if (acc === 'servicio') {
+        return 'Se registra una compra de SERVICIO (intangible, "Fumigación QA" a S/ 100 con un producto de reventa)' +
+          (id ? ' (compra id=' + id + ')' : '') + ': el backend nunca llama ENTRADA_COMPRA, así que el servicio NO debe mover el Kardex (solo el consumo de sus consumibles, vía SALIDA_COMPRA_SERVICIO).';
+      }
+      break;
+    case 'F13':
+      if (acc === 'consumible') {
+        return 'Consumible y producto de reventa: el consumible se compra a través de la TABLA ESPEJO del Kardex (200 u a S/ 0.5) y sale 50 u (queda en 150 con el costo congelado); el producto de reventa compra 12 packs (Pack x6 = 72 unidades) y el producto sin control de stock no genera movimiento.';
+      }
+      break;
+    default:
+      break;
+  }
+  switch (acc) {
+    case 'solicitud':
+      return 'Se crea la Solicitud de Compra de ' + detalle + ' (documento de intención: no mueve inventario)' + (id ? ' (id=' + id + ')' : '') + '.';
+    case 'oc':
+      return 'Se pacta la Orden de Compra de ' + detalle + (id ? ' (id=' + id + ')' : '') + ': la OC no mueve stock, solo fija el compromiso.';
+    case 'guia':
+      return 'Se registra la Guía de Compra de ' + detalle + (id ? ' (guía id=' + id + ')' : '') + ': la guía sí ingresa la mercadería al Kardex (ENTRADA_GUIA).';
+    case 'compra':
+      return 'Se registra la Compra de ' + detalle + (id ? ' (compra id=' + id + ')' : '') + ': es el documento contable (desgravación de IGV, CxP) y el que hace la entrada de stock cuando no hay guía.';
+    case 'nc':
+      return 'Nota de crédito de ' + detalle + ': descuenta cantidad (congelando el PPP) o clona la línea con costo rebajado.';
+    case 'modificar':
+      return 'Se modifica ' + detalle + ': el ERP re-proyecta el PPP hacia adelante y re-desgrava los impuestos.';
+    case 'anular':
+      return 'Se anula ' + detalle + ': contra-saldas que devuelven el stock y restauran el PPP previo.';
+    case 'distribuida':
+      return 'OC distribuida: una sola OC reparte cantidades entre varios locales y genera una fila por destino.';
+    case 'credito':
+      return 'Compra al crédito con cuotas: genera CxP, amortiza y afecta el límite de crédito del proveedor.';
+    case 'servicio':
+      return 'Compra de servicio (intangible) y compra rápida: asientan egreso/CxP sin tocar el Kardex.';
+    case 'consumible':
+      return 'Consumible (tabla espejo de Kardex) y producto de reventa: se verifica la doble vía del stock.';
+    default:
+      return 'Paso del flujo ' + fid + ' (' + titulo + ').';
+  }
 }
 
 /** Explicación clara y específica del paso, con sus valores y su resultado. */
@@ -51,6 +228,64 @@ export function describirPaso(r: FilaReporte): string {
   const alm = num(p, /@ (.+?)\)?\s*$/) || num(p, /@ (.+)$/);
   const almacen = alm ? alm.replace(/\)$/, '') : null;
   const tiene = (s: string): boolean => p.indexOf(s) >= 0;
+
+  // --- Flujos de Compras (F1-F13) -------------------------------------------
+  const flujoCompras = describirFlujoCompras(p, r);
+  if (flujoCompras) return flujoCompras;
+  if (tiene('assertUltimaSalida(')) {
+    return 'Se verifica que la última movimiento del Kardex sea la SALIDA de la nota de crédito (tipo 0, la cantidad devuelta y costo 0): una salida no promedia, congela el PPP.';
+  }
+  if (tiene('assertSinMovimientosVivos(')) {
+    return 'Se verifica el efecto real de la anulación con devolución de stock: la entrada de la compra queda marcada fueeliminado=SI y no sobreviven movimientos vivos (el backend regulariza los saldos).';
+  }
+  if (tiene('assertSinMovimientoProducto(')) {
+    return 'Se verifica que el producto SIN control de stock no generó movimiento en el Kardex: el backend corta el ingreso (early return) aunque la compra sí queda registrada.';
+  }
+  if (tiene('F8.desgravacion')) {
+    return 'Se audita la desgravación del detalle modificado: el costo sin IGV se recalcula con el precio nuevo (5/1.18) y el subtotal sin impuestos debe cuadrar.';
+  }
+  if (tiene('F9.ocDesvinculada')) {
+    return 'Se verifica que la OC quedara desvinculada de la compra anulada (compra_id vacío) y en estado APROBADO, es decir recanjeable.';
+  }
+  if (tiene('F13.espejo200')) {
+    return 'Se comprueba en la TABLA ESPEJO (movimientoalmacenconsumible) que el consumible "Caja Empaque QA" tenga 200 unidades a S/ 0.5 tras la compra.';
+  }
+  if (tiene('F13.espejo150')) {
+    return 'Se comprueba en la tabla espejo que la salida de 50 unidades deje el consumible en 150 con el costo congelado en S/ 0.5 (la salida no promedia).';
+  }
+  if (tiene('F13.producto72')) {
+    return 'Se verifica la conversión de la presentación de compra del producto: 12 packs × 6 unidades = 72 unidades en UM base y el costo unitario es el precio del pack dividido entre 6 (3.00/6 = 0.5).';
+  }
+  if (tiene('F13.compraSinControl')) {
+    return 'Se registra la compra del producto SIN control de stock: el documento se crea pero el inventario no debe moverse.';
+  }
+  if (tiene('F13.salida50')) {
+    return 'Sale el consumible como gasto operativo (merma): 50 unidades del Almacén Principal con el costo congelado.';
+  }
+  if (tiene('F13.compraConsumible')) {
+    return 'Se compra el consumible "Caja Empaque QA": 200 unidades a S/ 0.5 con el Kardex en la tabla espejo.';
+  }
+  if (tiene('F13.compraProducto')) {
+    return 'Se compra el producto de reventa "Gaseosa QA" en su presentación Pack.';
+  }
+  if (tiene('assertStock(')) {
+    const n = num(p, /assertStock\("([^"]+)"/) || 'insumo';
+    const donde = almacen ? ' en el almacén ' + almacen : '';
+    if (esp) {
+      const eSin = esp.sinImp !== null ? ' y S/ ' + esp.sinImp + ' sin impuestos' : '';
+      const rSin = real && real.sinImp !== null ? ' y S/ ' + real.sinImp + ' sin impuestos' : '';
+      return 'Se verifica que "' + n + '"' + donde + ' tenga ' + esp.stock + ' kg a S/ ' + esp.costo + ' de costo promedio' + eSin + (real ? '; el Kardex devuelve ' + real.stock + ' kg a S/ ' + real.costo + rSin : '') + '.';
+    }
+    return 'Se verifica el stock y costo de "' + n + '"' + donde + '.';
+  }
+  if (tiene('assertTotales(')) {
+    const c = num(p, /assertTotales\(compra=(\d+)\)/);
+    return 'Se auditan los totales de la compra (subtotal / IGV / total) contra la fórmula del bot' + (c ? ' (compra id=' + c + ')' : '') + '.';
+  }
+  if (tiene('assertKardex(')) {
+    const c = num(p, /assertKardex\(insumo=(\d+), alm=(\d+)\)/);
+    return 'Se audita la última fila del Kardex del ítem' + (c ? ' (insumo id=' + c[1] + ', almacén id=' + c[2] + ')' : '') + ': stock anterior, cantidad, costo operación, PPP y nuevo saldo.';
+  }
 
   if (tiene('obtenerEstadoGlobal')) return 'Se consulta el estado global del Kardex para fijar el punto de partida de la validación del bloque.';
   if (tiene('precondición')) return 'Se verifica que el bloque anterior dejó el estado exacto que este bloque necesita antes de operar.';
@@ -209,6 +444,24 @@ export function describirPaso(r: FilaReporte): string {
   return p;
 }
 
+/**
+ * Descripción final de la fila: capa ejercitada (frente vs API/BD) + la
+ * explicación del paso + los valores crudos que no son de stock (totales de
+ * compra, ids de documento, literales de bloqueo).
+ */
+export function descripcionFila(r: FilaReporte): string {
+  const base = describirPaso(r);
+  const crudo: string[] = [];
+  if (r.esperado && !stockCosto(r.esperado) && base.indexOf(r.esperado) < 0) {
+    crudo.push('esperado: ' + r.esperado);
+  }
+  if (r.real && !stockCosto(r.real) && base.indexOf(r.real) < 0) {
+    crudo.push('real: ' + r.real);
+  }
+  const extra = crudo.length ? ' [' + crudo.join(' | ') + ']' : '';
+  return '[' + capaDe(r) + '] ' + base + extra;
+}
+
 // ---------------------------------------------------------------------------
 // HTML (vista previa / entregable web)
 // ---------------------------------------------------------------------------
@@ -221,19 +474,30 @@ function esc(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** Parte un "stock=X; costo=Y[; costo_sin_imp=Z]" en celdas; si no parsea, va crudo a la 1.ª. */
+/** Parte un "stock=X; costo=Y[; sinImp=Z]" en celdas; si no parsea, deja las 3 vacías. */
 function celdasStock(txt: string | undefined): [string, string, string] {
   const v = stockCosto(txt);
-  if (!v) return [txt || '—', '—', '—'];
+  if (!v) return ['—', '—', '—'];
   return [v.stock, v.costo, v.sinImp ?? '—'];
+}
+
+/** Agrupa las filas por fase (flujo/bloque) conservando el orden de ejecución. */
+export function agruparPorFase(reporte: FilaReporte[]): Array<{ fase: string; filas: FilaReporte[] }> {
+  const grupos: Array<{ fase: string; filas: FilaReporte[] }> = [];
+  for (const r of reporte) {
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo && ultimo.fase === r.fase) ultimo.filas.push(r);
+    else grupos.push({ fase: r.fase, filas: [r] });
+  }
+  return grupos;
 }
 
 export function generarHtmlReporte(reporte: FilaReporte[], resumen?: ResumenReporte): string {
   const res = resumen || resumirReporte(reporte);
   const filas = reporte
     .map((r, i) => {
-      const cls = r.ok ? 'ok' : 'fail';
-      const badge = r.ok ? 'Éxito' : 'Fallo';
+      const cls = r.pendiente ? 'pend' : r.ok ? 'ok' : 'fail';
+      const badge = r.pendiente ? 'Pendiente' : r.ok ? 'Éxito' : 'Fallo';
       const e = celdasStock(r.esperado);
       const v = celdasStock(r.real);
       return (
@@ -249,7 +513,26 @@ export function generarHtmlReporte(reporte: FilaReporte[], resumen?: ResumenRepo
         '<td class="num">' + esc(v[1]) + '</td>' +
         '<td class="num">' + esc(v[2]) + '</td>' +
         '<td class="error">' + esc(r.error || '') + '</td>' +
-        '<td class="desc">' + esc(describirPaso(r)) + '</td>' +
+        '<td class="desc">' + esc(descripcionFila(r)) + '</td>' +
+        '</tr>'
+      );
+    })
+    .join('\n');
+
+  // Resumen por flujo: una fila por fase con su propio conteo.
+  const resumenFlujos = agruparPorFase(reporte)
+    .map((g) => {
+      const pend = g.filas.filter((f) => f.pendiente).length;
+      const ok = g.filas.filter((f) => f.ok && !f.pendiente).length;
+      const fail = g.filas.length - ok - pend;
+      const cls = fail > 0 ? 'fail' : 'ok';
+      return (
+        '      <tr class="' + cls + '">' +
+        '<td class="fase">' + esc(g.fase) + '</td>' +
+        '<td class="num">' + g.filas.length + '</td>' +
+        '<td class="num">' + ok + '</td>' +
+        '<td class="num">' + fail + '</td>' +
+        '<td class="num">' + pend + '</td>' +
         '</tr>'
       );
     })
@@ -261,7 +544,7 @@ export function generarHtmlReporte(reporte: FilaReporte[], resumen?: ResumenRepo
     '<head>\n' +
     '<meta charset="utf-8">\n' +
     '<style>\n' +
-    '  :root { --green-bg:#dcfce7; --green-fg:#166534; --red-bg:#fee2e2; --red-fg:#991b1b; --ink:#0f172a; --muted:#64748b; }\n' +
+    '  :root { --green-bg:#dcfce7; --green-fg:#166534; --red-bg:#fee2e2; --red-fg:#991b1b; --amber-bg:#fef3c7; --amber-fg:#92400e; --ink:#0f172a; --muted:#64748b; }\n' +
     '  * { box-sizing:border-box; }\n' +
     '  body { font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif; color:var(--ink); margin:32px; -webkit-print-color-adjust:exact; print-color-adjust:exact; }\n' +
     '  header { border-bottom:3px solid #0f172a; padding-bottom:12px; margin-bottom:16px; }\n' +
@@ -272,6 +555,7 @@ export function generarHtmlReporte(reporte: FilaReporte[], resumen?: ResumenRepo
     '  .card b { font-size:22px; display:block; }\n' +
     '  .card.ok { background:var(--green-bg); color:var(--green-fg); }\n' +
     '  .card.fail { background:var(--red-bg); color:var(--red-fg); }\n' +
+    '  .card.pend { background:var(--amber-bg); color:var(--amber-fg); }\n' +
     '  table { width:100%; border-collapse:collapse; font-size:12px; }\n' +
     '  thead th { background:#1e293b; color:#fff; text-align:center; padding:12px 8px; font-weight:700; }\n' +
     '  thead th.group { letter-spacing:1px; font-size:11px; border-bottom:1px solid #334155; }\n' +
@@ -281,8 +565,14 @@ export function generarHtmlReporte(reporte: FilaReporte[], resumen?: ResumenRepo
     '  tbody tr.fail { border-left:4px solid var(--red-fg); }\n' +
     '  .badge { font-weight:700; font-size:11px; white-space:nowrap; }\n' +
     '  .badge.ok { color:var(--green-fg); }\n' +
+    '  .badge.pend { color:var(--amber-fg); }\n' +
+    '  tbody tr.pend { border-left:4px solid var(--amber-fg); }\n' +
     '  .badge.fail { color:var(--red-fg); }\n' +
     '  .num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }\n' +
+    '  h2 { font-size:14px; margin:22px 0 8px; text-transform:uppercase; letter-spacing:1px; color:#334155; }\n' +
+    '  table.resumen { width:auto; min-width:420px; margin-bottom:8px; }\n' +
+    '  table.resumen td.fase { font-weight:600; }\n' +
+    '  table.resumen tr.fail td { color:var(--red-fg); font-weight:600; }\n' +
     '  td.desc, td.paso { text-align:left; }\n' +
     '  td.pre, .pre { text-align:left; word-break:break-word; font-size:11px; }\n' +
     '  pre.data { text-align:left; word-break:break-word; white-space:pre-wrap; font-size:11px; margin:0; font-family:inherit; }\n' +
@@ -294,7 +584,12 @@ export function generarHtmlReporte(reporte: FilaReporte[], resumen?: ResumenRepo
     '<body>\n' +
     '  <header><h1>Reporte E2E — Bot Logística</h1><div class="sub">Generado: ' + esc(res.fecha) + ' | Total: ' + res.total + '</div></header>\n' +
     '  <div class="cards"><div class="card ok"><b>' + res.exitosos + '</b>Éxitos</div>' +
-    '<div class="card fail"><b>' + res.fallidos + '</b>Fallos</div></div>\n' +
+    '<div class="card fail"><b>' + res.fallidos + '</b>Fallos</div>' +
+    '<div class="card pend"><b>' + res.pendientes + '</b>Pendientes</div></div>\n' +
+    '  <h2>Resumen por flujo</h2>\n' +
+    '  <table class="resumen"><thead><tr><th>Flujo / Bloque</th><th>Verificaciones</th><th>OK</th><th>Fallos</th><th>Pendientes</th></tr></thead>\n' +
+    '  <tbody>\n' + resumenFlujos + '\n  </tbody></table>\n' +
+    '  <h2>Detalle</h2>\n' +
     '  <table><thead>' +
     '<tr><th rowspan="2">N°</th><th rowspan="2">Fase</th><th rowspan="2">Paso</th><th rowspan="2">Estado</th>' +
     '<th colspan="3" class="group">ESPERADO</th>' +
@@ -325,6 +620,7 @@ const PDF = {
   zebra: '#f9fafb',
   greenFg: '#166534',
   redFg: '#991b1b',
+  amberFg: '#92400e',
   headBg: '#1e293b',
 } as const;
 
@@ -337,19 +633,21 @@ interface Columna {
 }
 
 // Orden y anchos configurables: para añadir/quitar columnas basta editar aquí.
+// El PDF NO lleva columna "Fase": cada flujo/bloque abre con una banda con su
+// nombre y su subtotal, así que la columna se dedicaba a repetir (y a hacer
+// crecer cada fila a 3 líneas). Ese espacio va a la Descripción.
 const COLUMNAS: Columna[] = [
-  { key: 'num', header: 'N°', width: 28 },
-  { key: 'fase', header: 'Fase', width: 60 },
-  { key: 'paso', header: 'Paso', width: 110 },
-  { key: 'estado', header: 'Est.', width: 42 },
-  { key: 'eStock', header: 'Stk.E', width: 45 },
-  { key: 'eCosto', header: 'Csto.E', width: 55 },
-  { key: 'eSin', header: 'S/ImpE', width: 60 },
-  { key: 'rStock', header: 'Stk.R', width: 45 },
-  { key: 'rCosto', header: 'Csto.R', width: 55 },
-  { key: 'rSin', header: 'S/ImpR', width: 60 },
-  { key: 'error', header: 'Error', width: 80 },
-  { key: 'desc', header: 'Descripción', width: 130 },
+  { key: 'num', header: 'N°', width: 24 },
+  { key: 'paso', header: 'Paso', width: 100 },
+  { key: 'estado', header: 'Est.', width: 36 },
+  { key: 'eStock', header: 'Stk.E', width: 42 },
+  { key: 'eCosto', header: 'Csto.E', width: 50 },
+  { key: 'eSin', header: 'S/ImpE', width: 54 },
+  { key: 'rStock', header: 'Stk.R', width: 42 },
+  { key: 'rCosto', header: 'Csto.R', width: 50 },
+  { key: 'rSin', header: 'S/ImpR', width: 54 },
+  { key: 'error', header: 'Error', width: 74 },
+  { key: 'desc', header: 'Descripción', width: 244 },
 ];
 
 /**
@@ -368,10 +666,10 @@ function sanearPDF(s: string): string {
 
 function celdaTexto(r: FilaReporte, key: Columna['key'], idx: number): string {
   if (key === 'num') return String(idx + 1);
-  if (key === 'desc') return sanearPDF(describirPaso(r));
+  if (key === 'desc') return sanearPDF(descripcionFila(r));
   if (key === 'fase') return r.fase;
   if (key === 'paso') return r.paso;
-  if (key === 'estado') return r.ok ? 'Éxito' : 'Fallo';
+  if (key === 'estado') return r.pendiente ? 'Pend.' : r.ok ? 'Éxito' : 'Fallo';
   if (key === 'eStock') return celdasStock(r.esperado)[0];
   if (key === 'eCosto') return celdasStock(r.esperado)[1];
   if (key === 'eSin') return celdasStock(r.esperado)[2];
@@ -403,8 +701,8 @@ function dibujarFilaEncabezado(doc: PDFKit.PDFDocument, y: number): number {
   doc.fillColor('#ffffff').font('Helvetica-Bold');
   // Fila superior: simples + grupos.
   let x = PDF.margin;
-  const simple = ['num', 'fase', 'paso', 'estado'];
-  const label: Record<string, string> = { num: 'N°', fase: 'Fase', paso: 'Paso', estado: 'Est.' };
+  const simple = ['num', 'paso', 'estado'];
+  const label: Record<string, string> = { num: 'N°', paso: 'Paso', estado: 'Est.' };
   doc.fontSize(PDF.fontSize.head);
   for (const key of simple) {
     const c = COLUMNAS.find((col) => col.key === key)!;
@@ -454,13 +752,13 @@ function dibujarFila(doc: PDFKit.PDFDocument, r: FilaReporte, y: number, h: numb
   if (idx % 2 === 1) {
     doc.rect(PDF.margin, y, totalW, h).fill(PDF.zebra);
   }
-  doc.rect(PDF.margin, y, 3, h).fill(r.ok ? PDF.greenFg : PDF.redFg);
+  doc.rect(PDF.margin, y, 3, h).fill(r.pendiente ? PDF.amberFg : r.ok ? PDF.greenFg : PDF.redFg);
   doc.fillColor(PDF.cellInk).fontSize(PDF.fontSize.cell).font('Helvetica');
   for (const c of COLUMNAS) {
     const txt = sanearPDF(celdaTexto(r, c.key, idx));
     const align = NUMERICAS.has(c.key) ? 'right' : 'left';
     if (c.key === 'estado') {
-      doc.fillColor(r.ok ? PDF.greenFg : PDF.redFg).font('Helvetica-Bold');
+      doc.fillColor(r.pendiente ? PDF.amberFg : r.ok ? PDF.greenFg : PDF.redFg).font('Helvetica-Bold');
       doc.text(txt, x + 4, y + PDF.rowPad, { width: c.width - 8, align });
       doc.fillColor(PDF.cellInk).font('Helvetica');
     } else {
@@ -476,8 +774,44 @@ function dibujarFila(doc: PDFKit.PDFDocument, r: FilaReporte, y: number, h: numb
 
 function dibujarPie(doc: PDFKit.PDFDocument): void {
   const y = doc.page.height - 28;
+  // El pie se escribe POR DEBAJO del margen inferior: sin anular el margen
+  // (solo en esta página) PDFKit abre una página nueva por cada pie y el
+  // reporte terminaba con autantas páginas en blanco como filas tiene.
+  const margenInferior = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0;
   doc.fillColor(PDF.muted).fontSize(8).font('Helvetica')
     .text('logisticaview-rpa-bot · npm run test:e2e · pág. ' + doc.bufferedPageRange().count, PDF.margin, y);
+  doc.page.margins.bottom = margenInferior;
+}
+
+/**
+ * Banda de sección: una por flujo/bloque, con el subtotal de sus verificaciones.
+ * Permite leer el PDF "por flujos" y ver de un vistazo dónde falla cada uno.
+ */
+function dibujarBandaFase(
+  doc: PDFKit.PDFDocument,
+  fase: string,
+  ok: number,
+  fail: number,
+  pend: number,
+  y: number,
+): number {
+  const h = 16;
+  const totalW = doc.page.width - PDF.margin * 2;
+  doc.save();
+  doc.rect(PDF.margin, y, totalW, h).fill(PDF.headBg);
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8)
+    .text(fase, PDF.margin + 5, y + 4.5, { width: totalW * 0.6, lineBreak: false });
+  const partes: string[] = [];
+  if (ok) partes.push(ok + ' OK');
+  if (fail) partes.push(fail + ' FALLO');
+  if (pend) partes.push(pend + ' PEND');
+  const txt = partes.length ? partes.join(' / ') + ' de ' + (ok + fail + pend) : (ok + fail + pend) + ' verificaciones';
+  doc.font('Helvetica').fontSize(7.5)
+    .fillColor(fail > 0 ? '#fca5a5' : pend > 0 ? '#fde68a' : '#a7f3d0')
+    .text(txt, PDF.margin + totalW * 0.6, y + 5, { width: totalW * 0.4 - 5, align: 'right', lineBreak: false });
+  doc.restore();
+  return y + h;
 }
 
 /** Genera el PDF del reporte. No usa navegador: funciona en cualquier entorno. */
@@ -490,16 +824,29 @@ export async function generarPdfReporte(reporte: FilaReporte[], pdfPath: string,
   dibujarCabecera(doc, res);
   let y = dibujarFilaEncabezado(doc, PDF.margin + PDF.headerH);
 
-  reporte.forEach((r, i) => {
-    const h = alturaFila(doc, r, i);
-    if (y + h > doc.page.height - 40) {
+  let idx = 0;
+  for (const grupo of agruparPorFase(reporte)) {
+    const bandaH = 16;
+    if (y + bandaH > doc.page.height - 40) {
       doc.addPage();
       dibujarCabecera(doc, res);
       y = dibujarFilaEncabezado(doc, PDF.margin + PDF.headerH);
     }
-    dibujarFila(doc, r, y, h, i);
-    y += h;
-  });
+    const ok = grupo.filas.filter((f) => f.ok && !f.pendiente).length;
+    const pend = grupo.filas.filter((f) => f.pendiente).length;
+    y = dibujarBandaFase(doc, grupo.fase, ok, grupo.filas.length - ok - pend, pend, y);
+    for (const r of grupo.filas) {
+      const h = alturaFila(doc, r, idx);
+      if (y + h > doc.page.height - 40) {
+        doc.addPage();
+        dibujarCabecera(doc, res);
+        y = dibujarFilaEncabezado(doc, PDF.margin + PDF.headerH);
+      }
+      dibujarFila(doc, r, y, h, idx);
+      y += h;
+      idx++;
+    }
+  }
 
   const pages = doc.bufferedPageRange();
   for (let i = 0; i < pages.count; i++) {
