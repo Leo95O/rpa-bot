@@ -4,7 +4,8 @@ import { ContextoCompra, EstadoSuite, LineaDetalle, ResultadoOperacion, TotalesC
 
 declare const angular: any;
 import { hoyMas, fechaHora, serieUnica, navegar, inyectarSolicitud, inyectarOrdenCompra, calcularTotales, ppp, precioSin, resolverPresentacion } from './helpers';
-import { assertStock, assertTotales, assertKardex, assertUltimaSalida, assertSinMovimientosVivos, assertSinMovimientoProducto, assertCuotasCredito, assertDistribucionOC, assertVinculosCanje, assertEstadoOC, assertStockPorAlmacen, leerStockActual, Veredicto } from './oraculo';
+import { assertStock, assertTotales, assertKardex, assertUltimaSalida, assertSinMovimientosVivos, assertSinMovimientoProducto, assertCuotasCredito, assertDistribucionOC, assertVinculosCanje, assertEstadoOC, assertStockPorAlmacen, assertClonPrecio, assertDistribucionEnlazada, leerUltimaMovimientoConsumible, leerStockInsumoPorAlmacen, assertCuotaAmortizada, leerDetalleOC, leerDetalleGuia, leerStockActual, Veredicto } from './oraculo';
+import { anularCompra } from '../../compras';
 import { resolverPresentacionProducto } from './seed';
 
 export type FlujoFn = (page: Page, ctx: ContextoCompra, estado: EstadoSuite) => Promise<Veredicto[]>;
@@ -62,37 +63,13 @@ function guardarPrevio(estado: EstadoSuite, flujo: string, previo: PrevioStock):
   estado.preEstados.set(flujo, previo);
 }
 
-/** Estado previo de un PRODUCTO (stock y PPP) leyendo su último movimiento vivo. */
+/** Estado previo de un PRODUCTO (stock y PPP) leyendo su Kardex. */
 async function leerStockProducto(
   productoId: number,
   almacenId: number,
 ): Promise<{ stock: number; ppp: number } | null> {
-  try {
-    const mysql = await import('mysql2/promise');
-    const conn = await mysql.createConnection({
-      host: process.env.DB_HOST || 'localhost',
-      port: Number(process.env.DB_PORT) || 3306,
-      user: process.env.DB_USER || 'root',
-      password: process.env.DB_PASSWORD || '',
-      database: process.env.DB_NAME || 'logisticaaa',
-    });
-    try {
-      const [rows] = await conn.query(
-        'SELECT movimientoalmaceninsumo_saldoactual AS saldo, movimientoalmaceninsumo_costopromedioactual AS ppp ' +
-          'FROM movimientoalmaceninsumo WHERE producto_id = ? AND almacen_id = ? ' +
-          "AND (movimientoalmaceninsumo_fueeliminado IS NULL OR movimientoalmaceninsumo_fueeliminado != '1') " +
-          'ORDER BY movimientoalmaceninsumo_id DESC LIMIT 1',
-        [productoId, almacenId],
-      );
-      const list = rows as Array<{ saldo: number; ppp: number }>;
-      if (!list.length) return null;
-      return { stock: Number(list[0].saldo), ppp: Number(list[0].ppp) };
-    } finally {
-      await conn.end();
-    }
-  } catch {
-    return null;
-  }
+  const { leerStockProductoPorAlmacen } = await import('./oraculo');
+  return leerStockProductoPorAlmacen(productoId, almacenId);
 }
 
 /** Redondeo a 3 decimales (misma tolerancia que los oráculos). */
@@ -485,6 +462,8 @@ export const flujoF7: FlujoFn = async (page, ctx, estado) => {
   const nuevoCosto = (precioOriginal * cantidadComprada - descuentoUnitario * cantidadComprada) / cantidadComprada;
   // El stock NO se mueve; el PPP (y su vía sin impuestos) queda en el nuevo costo.
   resultados.push(await assertStock(page, 'Verdura QA', previo.stock, nuevoCosto, nuevoCosto, ALMACEN));
+  // La entrada original queda eliminada y aparece el clon con el costo rebajado.
+  resultados.push(await assertClonPrecio(verduraId, ctx.almacenId, precioOriginal, nuevoCosto));
 
   return resultados;
 };
@@ -677,6 +656,35 @@ export const flujoF13: FlujoFn = async (page, ctx, estado) => {
   return resultados;
 };
 
+/** Cuotas de crédito de una compra (id, total y amortizado). */
+async function leerCuotas(compraId: number): Promise<Array<{ id: number; totalcuota: number; amortizacion: number; estado: string }>> {
+  try {
+    const mysql = await import('mysql2/promise');
+    const conn = await mysql.createConnection({
+      host: process.env.DB_HOST || 'localhost',
+      port: Number(process.env.DB_PORT) || 3306,
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_NAME || 'logisticaaa',
+    });
+    try {
+      const [rows] = await conn.query(
+        'SELECT comprasporpagar_id AS id, comprasporpagar_totalcuota AS total, ' +
+          'comprasporpagar_amortizacion AS amort, comprasporpagar_estado AS estado ' +
+          'FROM comprasporpagar WHERE compra_id = ? ORDER BY comprasporpagar_id',
+        [compraId],
+      );
+      return (rows as Array<{ id: number; total: number; amort: number; estado: string }>).map((r) => ({
+        id: Number(r.id), totalcuota: Number(r.total), amortizacion: Number(r.amort), estado: String(r.estado),
+      }));
+    } finally {
+      await conn.end();
+    }
+  } catch {
+    return [];
+  }
+}
+
 /** Límite de crédito del proveedor (lo descuenta la compra al crédito). */
 async function leerLimiteCredito(proveedorId: number): Promise<number | null> {
   try {
@@ -799,52 +807,93 @@ export const flujoF10: FlujoFn = async (page, ctx, estado) => {
   resultados.push(await assertVinculosCanje(ocId, 2));
 
   // Paso 3: guia por local (la distribucion reparte cantidad y precio).
-  const guiaB = await page.evaluate(async (args) => {
-    const injector = angular.element(document.body).injector();
-    const Gr = injector.get('GuiaResource');
-    const payload = {
-      guia: {
-        local_id: args.localId,
-        proveedor_id: args.proveedorId,
-        moneda_id: args.monedaId,
-        guia_tipocambio: args.tipoCambio,
-        guia_fechaemision: args.fecha,
-        guia_serie: args.serie,
-        guia_numeroguia: args.numero,
-        ordencompraList: [args.ocId],
-        guia_distribucion: '1',
-      },
-      productos: [{
-        item_id: args.itemId,
-        item_tipo: 1,
-        detalleguia_descripcion: 'Carne QA',
-        detalleguia_cantidad: args.cantidad,
-        detalleguia_costo: args.costo,
-        detalleguia_precio: args.costo,
-        detalleguia_importe: args.cantidad * args.costo,
-        almacen_id: args.almacenId,
-        insumo_id: args.itemId,
-        presentacioninsumo_id: args.presentacionId,
-        detalleguia_afectoaimpuestos: 'SI',
-        guia_id: '-1',
-      }],
-    };
-    try {
-      const r = await Gr.agregar(payload);
-      return { ok: r.tipo === 1 || r.tipo === '1', id: r.data, error: r.mensajes?.[0] };
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  }, {
-    localId: LOCAL_B, almacenId: ALM_B, ocId, itemId: carneId, presentacionId: presCarne,
-    proveedorId: ctx.proveedorId, monedaId: ctx.monedaId, tipoCambio: ctx.tipoCambio,
-    fecha: fechaHora(), serie: serieUnica('G'), numero: serieUnica('G'), cantidad: 20, costo: 20,
-  });
-  resultados.push({ paso: 'F10.guiaLocal2', ok: guiaB.ok, esperado: 'registrada (20 kg en el local 2)', real: guiaB.id !== undefined ? `id=${guiaB.id}` : undefined, error: guiaB.error });
-  if (guiaB.ok) {
-    estado.guias.set('F10.B', guiaB.id!);
-    // La guia del local 2 ingresa 20 kg en su almacen (stock por almacen).
-    resultados.push(await assertStockPorAlmacen(carneId, ALM_B, 20));
+  // El canje reescribe el precio de la OC al ultimo precio de compra, asi que
+  // el importe prorateado se calcula sobre el detalle REAL de la OC:
+  //   importe_local = round(importeOC / cantidadOC * cantidadLocal)
+  const detalleOc = await leerDetalleOC(ocId);
+  const lineaOc = detalleOc[0];
+  const precioUnitarioOc = lineaOc ? lineaOc.importe / lineaOc.cantidad : 0;
+
+  const guias: Array<{ localId: number; almacenId: number; cantidad: number; id?: number }> = [
+    { localId: LOCAL_A, almacenId: ALM_A, cantidad: 10 },
+    { localId: LOCAL_B, almacenId: ALM_B, cantidad: 20 },
+  ];
+  // Estado previo de cada almacen: la guia suma su parte sobre lo que ya habia
+  // (el item es compartido con los flujos anteriores).
+  const previoA = await leerStockInsumoPorAlmacen(carneId, ALM_A);
+  const previoB = await leerStockInsumoPorAlmacen(carneId, ALM_B);
+  for (const g of guias) {
+    const importeLocal = Math.round(precioUnitarioOc * g.cantidad * 100) / 100;
+    const guia = await page.evaluate(async (args) => {
+      const injector = angular.element(document.body).injector();
+      const Gr = injector.get('GuiaResource');
+      const payload = {
+        guia: {
+          local_id: args.localId,
+          proveedor_id: args.proveedorId,
+          moneda_id: args.monedaId,
+          guia_tipocambio: args.tipoCambio,
+          guia_fechaemision: args.fecha,
+          guia_serie: args.serie,
+          guia_numeroguia: args.numero,
+          ordencompraList: [args.ocId],
+          guia_distribucion: '1',
+        },
+        productos: [{
+          item_id: args.itemId,
+          item_tipo: 1,
+          detalleguia_descripcion: 'Carne QA',
+          detalleguia_cantidad: args.cantidad,
+          detalleguia_costo: args.costo,
+          detalleguia_precio: args.costo,
+          detalleguia_importe: args.cantidad * args.costo,
+          almacen_id: args.almacenId,
+          insumo_id: args.itemId,
+          presentacioninsumo_id: args.presentacionId,
+          detalleguia_afectoaimpuestos: 'SI',
+          guia_id: '-1',
+        }],
+      };
+      try {
+        const r = await Gr.agregar(payload);
+        return { ok: Number(r.tipo) === 1, id: r.data, error: Number(r.tipo) === 1 ? undefined : JSON.stringify(r.mensajes || r) };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    }, {
+      localId: g.localId, almacenId: g.almacenId, ocId, itemId: carneId, presentacionId: presCarne,
+      proveedorId: ctx.proveedorId, monedaId: ctx.monedaId, tipoCambio: ctx.tipoCambio,
+      fecha: fechaHora(), serie: serieUnica('G'), numero: serieUnica('G'),
+      cantidad: g.cantidad, costo: Math.round(precioUnitarioOc * 100) / 100,
+    });
+    resultados.push({
+      paso: 'F10.guiaLocal' + g.localId,
+      ok: guia.ok,
+      esperado: 'registrada (' + g.cantidad + ' kg en el local ' + g.localId + ')',
+      real: guia.id !== undefined ? 'id=' + guia.id : undefined,
+      error: guia.error,
+    });
+    if (!guia.ok) continue;
+    g.id = guia.id!;
+    estado.guias.set('F10.' + g.localId, guia.id!);
+
+    // La distribucion de ese local queda enlazada a su guia.
+    resultados.push(await assertDistribucionEnlazada(ocId, g.localId, guia.id!));
+    // Y la guia ingresa solo la parte de ese local (cantidad y precio prorateados).
+    const detalleGuia = await leerDetalleGuia(guia.id!);
+    const d = detalleGuia[0];
+    const okDetalle = !!d && Math.abs(d.cantidad - g.cantidad) < 0.02 && Math.abs(d.importe - importeLocal) < 0.05;
+    resultados.push({
+      paso: 'F10.detalleGuiaLocal' + g.localId,
+      ok: okDetalle,
+      esperado: 'cantidad=' + g.cantidad + '; importe=' + importeLocal + ' (prorrateo round(importeOC/cantOC x cantLocal))',
+      real: d ? 'cantidad=' + d.cantidad + '; costo=' + d.costo + '; importe=' + d.importe : 'sin detalle',
+      error: okDetalle ? undefined : 'La guia no took la cantidad ni el prorrateo de su local.',
+    });
+    // El stock de ese almacen sube solo con su parte (sobre el estado previo).
+    const previo = g.almacenId === ALM_A ? previoA : previoB;
+    const stockEsperado = (previo ? previo.stock : 0) + g.cantidad;
+    resultados.push(await assertStockPorAlmacen(carneId, g.almacenId, stockEsperado));
   }
 
   return resultados;
@@ -904,6 +953,80 @@ export const flujoF11: FlujoFn = async (page, ctx, estado) => {
 
   const totales = calcularTotales([{ cantidad, costo, afecto: true }], ctx.igv);
   resultados.push(await assertTotales(compra.id!, totales, divisor));
+
+  // Amortizacion: se paga media cuota (400) con transferencia (sin caja).
+  // El backend reparte el pago entre las cuotas, cierra la primera y
+  // devuelve el limite de credito al proveedor.
+  const cuotas = await leerCuotas(compra.id!);
+  const primera = cuotas[0];
+  if (primera) {
+    const amort = await page.evaluate(async (args) => {
+      const injector = angular.element(document.body).injector();
+      const Cr = injector.get('CompraResource');
+      const payload = {
+        comprasporpagarList: [{
+          comprasporpagar_id: args.cuotaId,
+          comprasporpagar_totalcuota: args.totalcuota,
+          comprasporpagar_amortizacion: 0,
+          comprasporpagar_interes: 0,
+        }],
+        pagocon: args.pago,
+        comprasporpagar_id: args.cuotaId,
+        comprasporpagar_totalcuota: args.totalcuota,
+        comprasporpagar_amortizacion: 0,
+        comprasporpagar_interes: 0,
+        detallecomprasporpagar_formapago: 2,
+        detallecomprasporpagar_tarjetaid: 1,
+        detallecomprasporpagar_tipocambio: 1,
+        detallecomprasporpagar_dinerosalecaja: '0',
+        detallecomprasporpagar_pagoefectivo: 0,
+        detallecomprasporpagar_fechapagobanco: args.fecha,
+        caja_id: null,
+        local_id: args.localId,
+        moneda_id: args.monedaId,
+        banco_id: null,
+        detallecomprasporpagar_cuentabancariaorigenid: null,
+        cuentabancaria_id: null,
+      };
+      try {
+        const r = await Cr.agregarAmortizacionCompra(payload);
+        return { ok: Number(r.tipo) === 1, error: Number(r.tipo) === 1 ? undefined : JSON.stringify(r.mensajes || r) };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    }, {
+      cuotaId: primera.id, totalcuota: primera.totalcuota, pago: totalCuota,
+      localId: ctx.localId, monedaId: ctx.monedaId, fecha: hoyMas(1),
+    });
+    resultados.push({ paso: 'F11.amortizacion', ok: amort.ok, esperado: 'pagada 1 cuota (S/ 400)', error: amort.error });
+
+    if (amort.ok) {
+      resultados.push(await assertCuotaAmortizada(primera.id, { amortizacion: totalCuota }));
+      // El backend devuelve el limite de credito por lo amortizado:
+      // limiteAntes - total de la compra + amortizado.
+      const limiteTras = await leerLimiteCredito(ctx.proveedorId);
+      const limiteEsperado = limiteAntes !== null ? limiteAntes - total + totalCuota : null;
+      const okLimite = limiteTras !== null && limiteEsperado !== null && Math.abs(limiteTras - limiteEsperado) < 0.02;
+      resultados.push({
+        paso: 'F11.limiteTrasAmortizar',
+        ok: okLimite,
+        esperado: `limite=${limiteEsperado} (descontado por la compra y devuelto por la amortizacion)`,
+        real: limiteTras === null ? 'sin dato' : `limite=${limiteTras}`,
+        error: okLimite ? undefined : 'El limite de credito no se devolvio tras la amortizacion.',
+      });
+
+      // Negativa: anular una compra con cuota pagada debe estar BLOQUEADO.
+      const anul = await anularCompra(page, compra.id!, true).catch((e: Error) => ({ ok: false, error: e.message }));
+      const bloqueada = !anul.ok;
+      resultados.push({
+        paso: 'F11.anularConCuotaPagada (debe bloquear)',
+        ok: bloqueada,
+        esperado: 'bloqueada por el sistema',
+        real: bloqueada ? 'bloqueada por el sistema' : 'se permitió (defecto)',
+        error: bloqueada ? undefined : anul.error,
+      });
+    }
+  }
 
   return resultados;
 };
@@ -977,6 +1100,102 @@ export const flujoF12: FlujoFn = async (page, ctx, estado) => {
     real: detalle ? `servicios=${detalle.servicios}; consumibles=${detalle.consumibles}` : 'sin lectura',
     error: detalle && detalle.servicios === 1 ? undefined : 'El detalle de servicio no se persistio.',
   });
+
+  // --- Servicio CON consumibles: el unico movimiento que genera es la
+  // SALIDA_COMPRA_SERVICIO (motivo 39) del consumible; NUNCA una ENTRADA.
+  const consumibleId = maestro(estado, 'Caja Empaque QA');
+  const presConsumible = await resolverPresentacion(page, 'Caja Empaque QA', 'Base');
+  if (!presConsumible) return [...resultados, { paso: 'F12.presentacionConsumible', ok: false, esperado: 'presentación Base resuelta', error: 'No se pudo resolver la presentación de Caja Empaque QA' }];
+
+  // Primero se compra el consumible (5 u) para que la salida del servicio no
+  // lo deje en negativo.
+  const compraConsumible = await compraHelper(
+    page,
+    ctx,
+    [{ itemTipo: 1, itemId: consumibleId, presentacionId: presConsumible, cantidad: 5, costo: 0.5, almacenId: ctx.almacenId, afecto: true, descripcion: 'Caja Empaque QA' }],
+  );
+  if (!compraConsumible.ok) return [...resultados, { paso: 'F12.compraConsumible', ok: false, esperado: 'creada', error: compraConsumible.error }];
+  resultados.push({ paso: 'F12.compraConsumible', ok: true, esperado: 'creada', real: `id=${compraConsumible.id}` });
+
+  const servicioConsumible = await page.evaluate(async (args) => {
+    const injector = angular.element(document.body).injector();
+    const Cr = injector.get('CompraResource');
+    const payload = {
+      compra: {
+        local_id: args.localId,
+        proveedor_id: args.proveedorId,
+        moneda_id: args.monedaId,
+        compra_tipocambio: args.tipoCambio,
+        compra_fecha: args.fecha,
+        compra_fechatributacion: args.fecha,
+        compra_tipodoc: 'FACTURA',
+        compra_seriedoc: args.serie,
+        compra_nrodoc: args.numero,
+        compra_tipo: 2,
+        compra_esalcredito: '0',
+        compra_subtotal: 2.118,
+        compra_igv: 0.382,
+        compra_total: 2.5,
+        compra_descuento: 0,
+        compra_flete: 0,
+        compra_icbper: 0,
+        compra_percepciontotal: 0,
+      },
+      productos: [{
+        item_id: args.itemId,
+        item_tipo: 1,
+        detallecompra_descripcion: 'Caja Empaque QA',
+        detallecompra_cantidad: 5,
+        detallecompra_costo: 0.5,
+        detallecompra_precio: 0.5,
+        detallecompra_importe: 2.5,
+        almacen_id: args.almacenId,
+        insumo_id: args.itemId,
+        presentacioninsumo_id: args.presentacionId,
+        detallecompra_afectoimpuestos: 1,
+        compra_id: '-1',
+      }],
+      detalles: [{
+        detallecompraservicio_descripcion: 'Fumigacion con materiales QA',
+        detallecompraservicio_precio: 50,
+        detallecompraservicio_estado: '1',
+      }],
+    };
+    try {
+      const r = await Cr.agregarCompraServicio(payload);
+      return { ok: Number(r.tipo) === 1, id: r.data, error: Number(r.tipo) === 1 ? undefined : JSON.stringify(r.mensajes || r) };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }, {
+    localId: ctx.localId, proveedorId: ctx.proveedorId, monedaId: ctx.monedaId, tipoCambio: ctx.tipoCambio,
+    fecha: fechaHora(), serie: serieUnica('S'), numero: serieUnica('S'),
+    itemId: consumibleId, presentacionId: presConsumible, almacenId: ctx.almacenId,
+  });
+  resultados.push({ paso: 'F12.servicioConConsumible', ok: servicioConsumible.ok, esperado: 'creada', real: servicioConsumible.id !== undefined ? `id=${servicioConsumible.id}` : undefined, error: servicioConsumible.error });
+
+  if (servicioConsumible.ok) {
+    // El consumible baja 5 u (SALIDA_COMPRA_SERVICIO, motivo 39) y NO entra.
+    const { leerStockConsumible } = await import('../oracle');
+    const espejo = await leerStockConsumible(consumibleId, ctx.almacenId);
+    const okEspejo = espejo !== null && Math.abs(espejo.stock) < 0.02;
+    resultados.push({
+      paso: 'F12.consumibleSalida',
+      ok: okEspejo,
+      esperado: 'stock=0 (5 u compradas - 5 u de salida del servicio)',
+      real: espejo ? `stock=${espejo.stock}; costo=${espejo.costo}` : 'sin movimientos',
+      error: okEspejo ? undefined : 'El consumible del servicio no quedo en 0.',
+    });
+    const mov = await leerUltimaMovimientoConsumible(consumibleId, ctx.almacenId);
+    const okMov = mov !== null && mov.tipo === 0 && Math.abs(mov.cantidad - 5) < 0.02 && mov.motivo === 39;
+    resultados.push({
+      paso: 'F12.salidaServicio',
+      ok: okMov,
+      esperado: 'tipo=0 (SALIDA); cantidad=5; motivo=39 (SALIDA_COMPRA_SERVICIO)',
+      real: mov ? `tipo=${mov.tipo}; cantidad=${mov.cantidad}; motivo=${mov.motivo}` : 'sin movimiento',
+      error: okMov ? undefined : 'El servicio no genero la SALIDA_COMPRA_SERVICIO esperada.',
+    });
+  }
 
   return resultados;
 };

@@ -25,7 +25,19 @@ export async function ejecutarFlujo(
 ): Promise<SuiteResult> {
   const flujo = FLUJOS[flujoId];
   if (!flujo) throw new Error(`Flujo ${flujoId} no existe`);
-  const veredictos = await flujo(page, ctx, estado);
+  let veredictos: Veredicto[];
+  try {
+    veredictos = await flujo(page, ctx, estado);
+  } catch (e) {
+    // Una excepción en un flujo no debe abortar la suite: se reporta como un
+    // veredicto fallido y la corrida sigue con el resto de flujos.
+    veredictos = [{
+      paso: flujoId + '.excepcion',
+      ok: false,
+      esperado: 'flujo sin excepciones',
+      error: e instanceof Error ? e.message : String(e),
+    }];
+  }
   return {
     flujo: flujoId,
     veredictos,

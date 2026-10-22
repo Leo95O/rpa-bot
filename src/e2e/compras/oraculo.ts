@@ -348,7 +348,7 @@ export async function assertEstadoOC(
   }
 }
 
-/** Stock y PPP de un ítem en un almacén concreto (último movimiento vivo). */
+/** Stock y PPP de un ítem en un almacén concreto (por el Kardex: Σentradas − Σsalidas). */
 export async function assertStockPorAlmacen(
   insumoId: number,
   almacenId: number,
@@ -357,22 +357,264 @@ export async function assertStockPorAlmacen(
 ): Promise<Veredicto> {
   const paso = `assertStockPorAlmacen(insumo=${insumoId}, alm=${almacenId})`;
   const esp = `stock=${esperadoStock}` + (esperadoCosto !== undefined ? `; costo=${esperadoCosto}` : '');
+  const r = await leerStockInsumoPorAlmacen(insumoId, almacenId);
+  if (!r) return { paso, ok: false, esperado: esp, error: 'Sin movimientos en el almacén' };
+  const real = `stock=${r.stock}; costo=${r.ppp}`;
+  let ok = Math.abs(r.stock - esperadoStock) < TOLERANCIA;
+  if (ok && esperadoCosto !== undefined) ok = Math.abs(r.ppp - esperadoCosto) < TOLERANCIA;
+  return { paso, ok, esperado: esp, real, error: ok ? undefined : 'Divergencia de stock/costo en el almacén.' };
+}
+
+/**
+ * Stock y PPP de un ítem en un almacén, calculados por el Kardex.
+ * OJO: el `saldoactual` de un movimiento NO es el stock en todas las filas: las
+ * SALIDAS se guardan con saldo 0 (el balance va en las ENTRADAS). Por eso el
+ * stock se calcula como Σentradas − Σsalidas (como el oráculo del espejo) y el
+ * PPP se toma de la última ENTRADA viva.
+ */
+export async function leerStockInsumoPorAlmacen(
+  insumoId: number,
+  almacenId: number,
+): Promise<{ stock: number; ppp: number } | null> {
+  try {
+    const conn = await conexion();
+    try {
+      const [rows] = await conn.query(
+        'SELECT movimientoalmaceninsumo_tipo AS tipo, movimientoalmaceninsumo_cantidad AS cant, ' +
+          'movimientoalmaceninsumo_costopromedioactual AS ppp FROM movimientoalmaceninsumo ' +
+          'WHERE insumo_id = ? AND almacen_id = ? ' +
+          "AND (movimientoalmaceninsumo_fueeliminado IS NULL OR movimientoalmaceninsumo_fueeliminado != '1') " +
+          'ORDER BY movimientoalmaceninsumo_id ASC',
+        [insumoId, almacenId],
+      );
+      const list = rows as Array<{ tipo: number; cant: number; ppp: number }>;
+      if (!list.length) return null;
+      let stock = 0;
+      let ppp = 0;
+      for (const m of list) {
+        if (Number(m.tipo) === 1) {
+          stock += Number(m.cant);
+          ppp = Number(m.ppp);
+        } else {
+          stock -= Number(m.cant);
+        }
+      }
+      return { stock: Math.round(stock * 1000) / 1000, ppp };
+    } finally {
+      await conn.end();
+    }
+  } catch (e) {
+    console.error('[DIAC][leerStockInsumoPorAlmacen] ' + (e instanceof Error ? e.message : String(e)));
+    return null;
+  }
+}
+
+/** Stock y PPP de un PRODUCTO en un almacén (mismo cálculo que el insumo). */
+export async function leerStockProductoPorAlmacen(
+  productoId: number,
+  almacenId: number,
+): Promise<{ stock: number; ppp: number } | null> {
+  try {
+    const conn = await conexion();
+    try {
+      const [rows] = await conn.query(
+        'SELECT movimientoalmaceninsumo_tipo AS tipo, movimientoalmaceninsumo_cantidad AS cant, ' +
+          'movimientoalmaceninsumo_costopromedioactual AS ppp FROM movimientoalmaceninsumo ' +
+          'WHERE producto_id = ? AND almacen_id = ? ' +
+          "AND (movimientoalmaceninsumo_fueeliminado IS NULL OR movimientoalmaceninsumo_fueeliminado != '1') " +
+          'ORDER BY movimientoalmaceninsumo_id ASC',
+        [productoId, almacenId],
+      );
+      const list = rows as Array<{ tipo: number; cant: number; ppp: number }>;
+      if (!list.length) return null;
+      let stock = 0;
+      let ppp = 0;
+      for (const m of list) {
+        if (Number(m.tipo) === 1) {
+          stock += Number(m.cant);
+          ppp = Number(m.ppp);
+        } else {
+          stock -= Number(m.cant);
+        }
+      }
+      return { stock: Math.round(stock * 1000) / 1000, ppp };
+    } finally {
+      await conn.end();
+    }
+  } catch (e) {
+    console.error('[DIAC][leerStockProductoPorAlmacen] ' + (e instanceof Error ? e.message : String(e)));
+    return null;
+  }
+}
+
+/** Último movimiento vivo de un CONSUMIBLE (tabla espejo del Kardex). */
+export async function leerUltimaMovimientoConsumible(
+  insumoId: number,
+  almacenId: number,
+): Promise<{ tipo: number; cantidad: number; motivo: number; costo: number } | null> {
+  try {
+    const conn = await conexion();
+    try {
+      const [rows] = await conn.query(
+        'SELECT movimientoalmacenconsumible_tipo AS tipo, movimientoalmacenconsumible_cantidad AS cant, ' +
+          'movimientoalmacenconsumible_motivo AS motivo, movimientoalmacenconsumible_costooperacion AS costo ' +
+          'FROM movimientoalmacenconsumible WHERE insumo_id = ? AND almacen_id = ? ' +
+          "AND (movimientoalmacenconsumible_fueeliminado IS NULL OR movimientoalmacenconsumible_fueeliminado != '1') " +
+          'ORDER BY movimientoalmacenconsumible_id DESC LIMIT 1',
+        [insumoId, almacenId],
+      );
+      const list = rows as Array<{ tipo: number; cant: number; motivo: number; costo: number }>;
+      if (!list.length) return null;
+      return { tipo: Number(list[0].tipo), cantidad: Number(list[0].cant), motivo: Number(list[0].motivo), costo: Number(list[0].costo) };
+    } finally {
+      await conn.end();
+    }
+  } catch (e) {
+    console.error('[DIAC][leerUltimaMovimientoConsumible] ' + (e instanceof Error ? e.message : String(e)));
+    return null;
+  }
+}
+
+/**
+ * Detalle persistido de una OC.
+ * La tabla NO tiene columna de costo unitario: guarda el IMPORTE en
+ * `detalleordencompra_precio` (orden-de-compra.md §5.2: "precio = importe"),
+ * así que el costo unitario se deriva como precio / cantidad.
+ */
+export async function leerDetalleOC(
+  ordenCompraId: number,
+): Promise<Array<{ cantidad: number; costo: number; importe: number }>> {
+  try {
+    const conn = await conexion();
+    try {
+      const [rows] = await conn.query(
+        'SELECT detalleordencompra_cantidad AS cantidad, detalleordencompra_precio AS importe ' +
+          'FROM detalleordencompra WHERE ordencompra_id = ?',
+        [ordenCompraId],
+      );
+      return (rows as Array<{ cantidad: number; importe: number }>).map((r) => ({
+        cantidad: Number(r.cantidad),
+        importe: Number(r.importe),
+        costo: Number(r.cantidad) ? Number(r.importe) / Number(r.cantidad) : 0,
+      }));
+    } finally {
+      await conn.end();
+    }
+  } catch (e) {
+    console.error('[DIAC][leerDetalleOC] ' + (e instanceof Error ? e.message : String(e)));
+    return [];
+  }
+}
+
+/** Detalle persistido de una guía (cantidad, costo e importe). */
+export async function leerDetalleGuia(
+  guiaId: number,
+): Promise<Array<{ cantidad: number; costo: number; importe: number }>> {
+  try {
+    const conn = await conexion();
+    try {
+      const [rows] = await conn.query(
+        'SELECT detalleguia_cantidad AS cantidad, detalleguia_costo AS costo, detalleguia_importe AS importe ' +
+          'FROM detalleguia WHERE guia_id = ?',
+        [guiaId],
+      );
+      return (rows as Array<{ cantidad: number; costo: number; importe: number }>).map((r) => ({
+        cantidad: Number(r.cantidad), costo: Number(r.costo), importe: Number(r.importe),
+      }));
+    } finally {
+      await conn.end();
+    }
+  } catch (e) {
+    console.error('[DIAC][leerDetalleGuia] ' + (e instanceof Error ? e.message : String(e)));
+    return [];
+  }
+}
+
+/**
+ * La fila de distribución del local debe quedar enlazada a la guía que
+ * sirvió ese local (distribucionordencompra.guia_id).
+ */
+export async function assertDistribucionEnlazada(
+  ordenCompraId: number,
+  localId: number,
+  guiaId: number,
+): Promise<Veredicto> {
+  const paso = `assertDistribucionEnlazada(oc=${ordenCompraId}, local=${localId})`;
+  const esperado = `guia_id=${guiaId}`;
   const conn = await conexion();
   try {
     const [rows] = await conn.query(
-      'SELECT movimientoalmaceninsumo_saldoactual AS saldo, movimientoalmaceninsumo_costopromedioactual AS ppp ' +
-        'FROM movimientoalmaceninsumo WHERE insumo_id = ? AND almacen_id = ? ' +
-        "AND (movimientoalmaceninsumo_fueeliminado IS NULL OR movimientoalmaceninsumo_fueeliminado != '1') " +
-        'ORDER BY movimientoalmaceninsumo_id DESC LIMIT 1',
+      'SELECT d.guia_id AS guia FROM distribucionordencompra d ' +
+        'JOIN detalleordencompra dc ON dc.detalleordencompra_id = d.detalleordencompra_id ' +
+        'WHERE dc.ordencompra_id = ? AND d.local_id = ?',
+      [ordenCompraId, localId],
+    );
+    const list = rows as Array<{ guia: number | null }>;
+    if (!list.length) return { paso, ok: false, esperado, error: 'No hay fila de distribución para el local' };
+    const real = `guia_id=${list[0].guia === null ? 'null' : list[0].guia}`;
+    const ok = Number(list[0].guia) === Number(guiaId);
+    return { paso, ok, esperado, real, error: ok ? undefined : 'La distribución no quedó enlazada a la guía del local.' };
+  } catch (e) {
+    return { paso, ok: false, esperado, error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    await conn.end();
+  }
+}
+
+/** Estado de amortización de una cuota de crédito. */
+export async function assertCuotaAmortizada(
+  comprasporpagarId: number,
+  esperado: { amortizacion: number; estado?: string },
+): Promise<Veredicto> {
+  const paso = `assertCuotaAmortizada(cuota=${comprasporpagarId})`;
+  const esp = `amortizacion=${esperado.amortizacion}` + (esperado.estado ? `; estado=${esperado.estado}` : '');
+  const conn = await conexion();
+  try {
+    const [rows] = await conn.query(
+      'SELECT comprasporpagar_amortizacion AS amort, comprasporpagar_estado AS estado FROM comprasporpagar WHERE comprasporpagar_id = ?',
+      [comprasporpagarId],
+    );
+    const list = rows as Array<{ amort: number; estado: string }>;
+    if (!list.length) return { paso, ok: false, esperado: esp, error: 'Cuota no encontrada' };
+    const real = `amortizacion=${Number(list[0].amort)}; estado=${list[0].estado}`;
+    let ok = Math.abs(Number(list[0].amort) - esperado.amortizacion) < TOLERANCIA;
+    if (ok && esperado.estado) ok = String(list[0].estado) === esperado.estado;
+    return { paso, ok, esperado: esp, real, error: ok ? undefined : 'La amortización de la cuota no es la esperada.' };
+  } catch (e) {
+    return { paso, ok: false, esperado: esp, error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    await conn.end();
+  }
+}
+
+/**
+ * NC por PRECIO: la ENTRADA original queda marcada fueeliminado=SI y el
+ * clon vive con el costo rebajado (NotacreditocompraLogistica:224-404).
+ */
+export async function assertClonPrecio(
+  insumoId: number,
+  almacenId: number,
+  costoOriginal: number,
+  costoNuevo: number,
+): Promise<Veredicto> {
+  const paso = `assertClonPrecio(insumo=${insumoId}, alm=${almacenId})`;
+  const esp = `origen eliminado (costo ${costoOriginal}) + clon vivo (costo ${costoNuevo})`;
+  const conn = await conexion();
+  try {
+    const [rows] = await conn.query(
+      'SELECT movimientoalmaceninsumo_costooperacion AS costo, movimientoalmaceninsumo_fueeliminado AS elim ' +
+        'FROM movimientoalmaceninsumo WHERE insumo_id = ? AND almacen_id = ? ORDER BY movimientoalmaceninsumo_id',
       [insumoId, almacenId],
     );
-    const list = rows as Array<{ saldo: number; ppp: number }>;
-    if (!list.length) return { paso, ok: false, esperado: esp, error: 'Sin movimientos en el almacén' };
-    const m = list[0];
-    const real = `stock=${Number(m.saldo)}; costo=${Number(m.ppp)}`;
-    let ok = Math.abs(Number(m.saldo) - esperadoStock) < TOLERANCIA;
-    if (ok && esperadoCosto !== undefined) ok = Math.abs(Number(m.ppp) - esperadoCosto) < TOLERANCIA;
-    return { paso, ok, esperado: esp, real, error: ok ? undefined : 'Divergencia de stock/costo en el almacén.' };
+    const list = rows as Array<{ costo: number; elim: string | number | null }>;
+    const eliminados = list.filter((m) => String(m.elim) === '1');
+    const vivos = list.filter((m) => String(m.elim) !== '1');
+    const real = `movimientos=${list.length} (eliminados=${eliminados.length}, vivos=${vivos.length}); ` +
+      `costos=[${list.map((m) => Number(m.costo).toFixed(3)).join(', ')}]`;
+    const clon = vivos.find((m) => Math.abs(Number(m.costo) - costoNuevo) < TOLERANCIA);
+    const ok = eliminados.length === 1 && vivos.length === 1 && !!clon &&
+      Math.abs(Number(eliminados[0].costo) - costoOriginal) < TOLERANCIA;
+    return { paso, ok, esperado: esp, real, error: ok ? undefined : 'La NC por precio no dejó el clon esperado.' };
   } catch (e) {
     return { paso, ok: false, esperado: esp, error: e instanceof Error ? e.message : String(e) };
   } finally {
