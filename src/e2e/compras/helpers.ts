@@ -190,16 +190,17 @@ export async function resolverPresentacion(
 export function calcularTotales(
   lineas: Array<{ cantidad: number; costo: number; afecto: boolean; descuento?: number }>,
   igvPct: number,
-  opts: { flete?: number; icbper?: number; percepcion?: number } = {},
+  opts: { flete?: number; icbper?: number; percepcion?: number; precioNeto?: boolean } = {},
 ): TotalesCompra {
   let subtotal = 0;
   let igv = 0;
   for (const l of lineas) {
-    const importe = l.cantidad * l.costo - (l.descuento || 0);
+    const desc = l.descuento || 0;
+    const importe = l.cantidad * l.costo - desc;
     if (l.afecto) {
-      const sin = l.costo / (1 + igvPct / 100);
-      subtotal += sin * l.cantidad;
-      igv += sin * (igvPct / 100) * l.cantidad;
+      const sinUnit = opts.precioNeto ? (importe / l.cantidad) : (importe / l.cantidad) / (1 + igvPct / 100);
+      subtotal += sinUnit * l.cantidad;
+      igv += sinUnit * (igvPct / 100) * l.cantidad;
     } else {
       subtotal += importe;
     }

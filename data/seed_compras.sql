@@ -13,11 +13,14 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- ---------------------------------------------------------------------
 INSERT INTO local (local_id, razonsocial_id, local_monedaestandarid, local_descripcion, local_direccion, local_telefono, local_encargado, local_estado)
 VALUES (1, 1, 1, 'CD Logístico', 'Calle 2 N° 136 Urb. La Calerita- Surquillo- Lima', '-', '-', '1')
-ON DUPLICATE KEY UPDATE local_descripcion = 'CD Logístico';
+ON DUPLICATE KEY UPDATE local_descripcion = 'CD Logístico', local_esproduccion = '1';
 
 INSERT INTO local (local_id, razonsocial_id, local_monedaestandarid, local_descripcion, local_direccion, local_telefono, local_encargado, local_estado)
 VALUES (2, 1, 1, 'Lima', 'Av. Lima 200', '-', '-', '1')
 ON DUPLICATE KEY UPDATE local_descripcion = 'Lima';
+
+-- Local 1 = productivo (requerido por F14 calculadora).
+UPDATE local SET local_esproduccion = '1' WHERE local_id = 1;
 
 -- ---------------------------------------------------------------------
 -- 2. ALMACENES
@@ -98,8 +101,10 @@ INSERT INTO configuracionlocal (configuracion_id, local_id, configuracionlocal_v
 INSERT INTO configuracionlocal (configuracion_id, local_id, configuracionlocal_valor, configuracionlocal_valoraux1, configuracionlocal_valoraux2) VALUES (115, 1, '0', NULL, NULL) ON DUPLICATE KEY UPDATE configuracionlocal_valor='0';
 
 -- ---------------------------------------------------------------------
--- 9. LIMPIEZA DE TRANSACCIONALES
+-- 9. LIMPIEZA DE TRANSACCIONALES + DUPLICADOS DE CONFIGURACION
 -- ---------------------------------------------------------------------
+-- Limpiar duplicados de configuracionlocal (mantener solo el primero por configuracion_id + local_id)
+DELETE c1 FROM configuracionlocal c1 INNER JOIN configuracionlocal c2 WHERE c1.configuracionlocal_id > c2.configuracionlocal_id AND c1.configuracion_id = c2.configuracion_id AND c1.local_id = c2.local_id;
 DELETE FROM detallecompra WHERE detallecompra_id > 0;
 DELETE FROM compra WHERE compra_id > 0;
 DELETE FROM detalleguia WHERE detalleguia_id > 0;
@@ -130,6 +135,12 @@ DELETE FROM detallemerma WHERE detallemerma_id > 0;
 DELETE FROM detallecompramanual WHERE detallecompramanual_id > 0;
 DELETE FROM avancecompra WHERE avancecompra_id > 0;
 DELETE FROM detalleavancecompra WHERE detalleavancecompra_id > 0;
+DELETE FROM detalleordenproduccion WHERE detalleordenproduccion_id > 0;
+DELETE FROM ordenproduccion WHERE ordenproduccion_id > 0;
+DELETE FROM requerimientomovimiento WHERE requerimientomovimiento_id > 0;
+DELETE FROM detallesolitudmovimiento WHERE detallesolitudmovimiento_id > 0;
+DELETE FROM solitudmovimiento WHERE solitudmovimiento_id > 0;
+DELETE FROM cierrecaja WHERE cierrecaja_checksum LIKE 'QABOT-%';
 DELETE FROM historicocambio WHERE historicocambio_id > 0;
 DELETE FROM eventologistica WHERE eventologistica_id > 0;
 
@@ -155,9 +166,9 @@ VALUES (1002, 1, 'VER-QA', 'Verdura QA', 'Verduras para pruebas', 1, '0', '0', 0
 ON DUPLICATE KEY UPDATE insumo_nombre = 'Verdura QA';
 
 -- I3 Pollo QA (afecto, KG, merma 5%)
-INSERT INTO insumo (insumo_id, categoriainsumo_id, insumo_codigo, insumo_nombre, insumo_descripcion, unidadmedidainsumo_id, insumo_afectoigv, insumo_consumible, insumo_mermaporcentaje, insumo_mermaautomaticaalcomprar, insumo_estado)
-VALUES (1003, 1, 'POL-QA', 'Pollo QA', 'Pollo entero para pruebas', 1, '1', '0', 5, '1', '1')
-ON DUPLICATE KEY UPDATE insumo_nombre = 'Pollo QA', insumo_mermaporcentaje = 5, insumo_mermaautomaticaalcomprar = '1';
+INSERT INTO insumo (insumo_id, categoriainsumo_id, insumo_codigo, insumo_nombre, insumo_descripcion, unidadmedidainsumo_id, insumo_afectoigv, insumo_consumible, insumo_mermaporcentaje, insumo_mermaautomaticaalcomprar, insumo_estado, proveedor_id)
+VALUES (1003, 1, 'POL-QA', 'Pollo QA', 'Pollo entero para pruebas', 1, '1', '0', 5, '1', '1', 1)
+ON DUPLICATE KEY UPDATE insumo_nombre = 'Pollo QA', insumo_mermaporcentaje = 5, insumo_mermaautomaticaalcomprar = '1', proveedor_id = 1;
 
 -- I4 Arroz QA (afecto, KG)
 INSERT INTO insumo (insumo_id, categoriainsumo_id, insumo_codigo, insumo_nombre, insumo_descripcion, unidadmedidainsumo_id, insumo_afectoigv, insumo_consumible, insumo_mermaporcentaje, insumo_mermaautomaticaalcomprar, insumo_estado)

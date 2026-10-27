@@ -118,6 +118,71 @@ const FLUJOS_COMPRAS: Record<string, { titulo: string; detalle: string; efecto: 
     detalle: 'Caja de Empaque 200 u @ 0.5 y Gaseosa',
     efecto: 'SÍ mueve el stock: el consumible va a la tabla espejo (0 -> 200 u, PPP 0.500; la salida de 50 lo deja en 150 con el costo congelado); el producto Pack x 6 convierte 12 packs a 72 unidades; el producto sin control de stock no genera movimiento.',
   },
+  F14: {
+    titulo: 'Calculadora de produccion (sin Kardex)',
+    detalle: 'genera OC desde los faltantes de MRP',
+    efecto: 'NO mueve el stock: exige local de produccion y un faltante real (stock bajo el minimo o requerimiento MRP con cantidadFaltante > 0).',
+  },
+  F15: {
+    titulo: 'Compra multi-documento (2 OCs + 1 guia parcial)',
+    detalle: 'una sola compra consolida 2 OCs y una guia parcial',
+    efecto: 'SÍ mueve el stock: consolida en un solo documento con precio promedio ponderado (round(total/cant,4)) y deja las OCs en PROCESADA/ENPROCESO.',
+  },
+  F16: {
+    titulo: 'Canjes parciales (guia parcial + compra del saldo)',
+    detalle: 'OC de 100 kg: guia de 40 y compra de 60',
+    efecto: 'SÍ mueve el stock: la guia parcial deja la OC en ENPROCESO y la compra del saldo la cierra en PROCESADA; la suma de lo canjeado (40 + 60 = 100) cierra contra el importe de la OC.',
+  },
+  F17: {
+    titulo: 'Cargos y descuentos (flete, ICBPer, percepcion)',
+    detalle: 'Arroz 100 kg @ 4 con descuento de item, global y flete 50',
+    efecto: 'SÍ cambia el costo: el flete entra al costo (y al PPP) pero NO al costo sin impuestos (bug F30-1); la percepcion no suma al total y la retencion resta al pagable.',
+  },
+  F18: {
+    titulo: 'Multi-moneda (compra en dolares)',
+    detalle: '100 kg a 2.00 USD/kg con TC 3.80',
+    efecto: 'SÍ mueve el stock: el Kardex se valora en soles (costoTC = 2.00 x 3.80 = 7.60) y el ultimo precio por moneda no se mezcla con el de soles.',
+  },
+  F19: {
+    titulo: 'Precio neto (impuestos NO incluidos en el precio)',
+    detalle: '50 kg de "Carne QA" a 16.949 neto',
+    efecto: 'SÍ cambia el costo: el backend genera el IGV encima del precio neto (847.45 + 18% = 1000.00) y el Kardex se valoriza con el precio bruto (20.00).',
+  },
+  F20: {
+    titulo: 'Pago mixito + caja + retenciones',
+    detalle: 'contado parcial + credito, efectivo y tarjeta',
+    efecto: 'NO mueve el stock: asienta egresos, cuotas y retenciones; al anular se revierten los egresos (ingreso reverso).',
+  },
+  F21: {
+    titulo: 'Merma automatica al comprar (Pollo QA 5%)',
+    detalle: '100 kg a 10 con merma automatica del 5%',
+    efecto: 'SÍ mueve el stock: el backend encarece el costo (1000 / 95 = 10.5263), registra la ENTRADA de 100 kg y una SALIDA de merma de 5 kg, y el PPP promedia sobre las unidades NETAS (denominador S+95).',
+  },
+  F22: {
+    titulo: 'Fusion de solicitudes (3 solicitudes -> 1 OC)',
+    detalle: 'tres solicitudes del mismo item y proveedor',
+    efecto: 'NO mueve el stock: consolida las cantidades en una OC (precio re-escrito al ultimo de compra) con el pivote de trazabilidad de las 3 solicitudes.',
+  },
+  F23: {
+    titulo: 'Fusion de OCs (3 OCs -> 1 guia/compra)',
+    detalle: 'OC-A 20@20 + OC-B 30@22 + OC-C 40@4',
+    efecto: 'SÍ mueve el stock: consolida las 3 OCs con precio promedio ponderado (Carne 50 u a 21.20) y deja las OCs en PROCESADA.',
+  },
+  F24: {
+    titulo: 'OC en dolares y su compra',
+    detalle: 'OC de 50 kg a 2.00 USD con TC 3.80',
+    efecto: 'SÍ mueve el stock: el Kardex se valora en soles (costoTC 7.60, sinTC 6.441) y el importe de la OC queda en dolares (100 USD).',
+  },
+  F25: {
+    titulo: 'Mismo insumo en soles y dolares',
+    detalle: '50 kg a 7.60 soles y luego 50 kg a 2.00 USD',
+    efecto: 'SÍ mueve el stock: el PPP promedia ambas monedas en soles y el ultimo precio por moneda NO se mezcla entre monedas.',
+  },
+  F26: {
+    titulo: 'Flete + tipo de cambio combinados',
+    detalle: '100 kg a 2.00 USD con flete de 76 soles',
+    efecto: 'SÍ cambia el costo: costoFinal = 7.60 + 0.76 = 8.36 y el sin-impuestos NO incluye el flete (bug F30-1).',
+  },
 };
 
 /** Explicación de un paso de los flujos de Compras (F1-F13). */

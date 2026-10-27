@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --green-bg:#dcfce7; --green-fg:#166534; --red-bg:#fee2e2; --red-fg:#991b1b; --amber-bg:#fef3c7; --amber-fg:#92400e; --ink:#0f172a; --muted:#64748b; }
+  * { box-sizing:border-box; }
+  body { font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif; color:var(--ink); margin:32px; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  header { border-bottom:3px solid #0f172a; padding-bottom:12px; margin-bottom:16px; }
+  h1 { font-size:22px; margin:0; }
+  .sub { color:var(--muted); font-size:12px; margin-top:4px; }
+  .cards { display:flex; gap:12px; margin:16px 0; }
+  .card { flex:1; border-radius:12px; padding:12px 16px; background:#f1f5f9; }
+  .card b { font-size:22px; display:block; }
+  .card.ok { background:var(--green-bg); color:var(--green-fg); }
+  .card.fail { background:var(--red-bg); color:var(--red-fg); }
+  .card.pend { background:var(--amber-bg); color:var(--amber-fg); }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  thead th { background:#1e293b; color:#fff; text-align:center; padding:12px 8px; font-weight:700; }
+  thead th.group { letter-spacing:1px; font-size:11px; border-bottom:1px solid #334155; }
+  tbody td { padding:12px 8px; border-bottom:1px solid #e2e8f0; vertical-align:top; color:#334155; }
+  tbody tr:nth-child(even) { background-color:#f9fafb; }
+  tbody tr.ok { border-left:4px solid var(--green-fg); }
+  tbody tr.fail { border-left:4px solid var(--red-fg); }
+  .badge { font-weight:700; font-size:11px; white-space:nowrap; }
+  .badge.ok { color:var(--green-fg); }
+  .badge.pend { color:var(--amber-fg); }
+  tbody tr.pend { border-left:4px solid var(--amber-fg); }
+  .badge.fail { color:var(--red-fg); }
+  .num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  h2 { font-size:14px; margin:22px 0 8px; text-transform:uppercase; letter-spacing:1px; color:#334155; }
+  table.resumen { width:auto; min-width:420px; margin-bottom:8px; }
+  table.resumen td.fase { font-weight:600; }
+  table.resumen tr.fail td { color:var(--red-fg); font-weight:600; }
+  td.desc, td.paso { text-align:left; }
+  td.pre, .pre { text-align:left; word-break:break-word; font-size:11px; }
+  pre.data { text-align:left; word-break:break-word; white-space:pre-wrap; font-size:11px; margin:0; font-family:inherit; }
+  .fase { white-space:nowrap; font-weight:600; }
+  .error { color:var(--red-fg); }
+  footer { margin-top:16px; color:var(--muted); font-size:11px; }
+</style>
+</head>
+<body>
+  <header><h1>Reporte E2E — Bot Logística</h1><div class="sub">Generado: 26/10/2026, 10:25:50 a.m. | Total: 22</div></header>
+  <div class="cards"><div class="card ok"><b>22</b>Éxitos</div><div class="card fail"><b>0</b>Fallos</div><div class="card pend"><b>0</b>Pendientes</div></div>
+  <h2>Resumen por flujo</h2>
+  <table class="resumen"><thead><tr><th>Flujo / Bloque</th><th>Verificaciones</th><th>OK</th><th>Fallos</th><th>Pendientes</th></tr></thead>
+  <tbody>
+      <tr class="ok"><td class="fase">Bloque 1: Aprovisionamiento</td><td class="num">22</td><td class="num">22</td><td class="num">0</td><td class="num">0</td></tr>
+  </tbody></table>
+  <h2>Detalle</h2>
+  <table><thead><tr><th rowspan="2">N°</th><th rowspan="2">Fase</th><th rowspan="2">Paso</th><th rowspan="2">Estado</th><th colspan="3" class="group">ESPERADO</th><th colspan="3" class="group">REAL</th><th rowspan="2">Error</th><th rowspan="2">Descripción</th></tr><tr><th>Stock</th><th>Costo</th><th>Sin Imp.</th><th>Stock</th><th>Costo</th><th>Sin Imp.</th></tr></thead>
+  <tbody>
+      <tr class="ok"><td class="num">1</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">1. kardex.obtenerEstadoGlobal()</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="error"></td><td class="desc">[API/BD] Se consulta el estado global del Kardex para fijar el punto de partida de la validación del bloque. [real: {&quot;fecha&quot;:&quot;2026-10-26T15:24:42.361Z&quot;,&quot;insumos&quot;:[]}]</td></tr>
+      <tr class="ok"><td class="num">2</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">1. crearInsumo('Carne QA') 0kg</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="error"></td><td class="desc">[FRONT-&gt;API] Se da de alta el insumo &quot;Carne QA&quot; con 0 kg en el Almacén Principal, generándose con id=1620. Es el insumo que se seguirá en toda la matriz.</td></tr>
+      <tr class="ok"><td class="num">3</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">validarStock(&quot;Carne QA&quot;)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="error"></td><td class="desc">[API/BD] Se verifica que &quot;Carne QA&quot; tenga 0 kg a S/ 0 de costo promedio y S/ 0 sin impuestos; el Kardex devuelve 0 kg a S/ 0 y S/ 0 sin impuestos.</td></tr>
+      <tr class="ok"><td class="num">4</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">2. registrarSolicitud(50kg)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="error"></td><td class="desc">[FRONT-&gt;API] Se registra la Solicitud de Compra por 50 kg de &quot;Carne QA&quot; (documento de intención, no mueve inventario) con id=17.</td></tr>
+      <tr class="ok"><td class="num">5</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">validarStock(&quot;Carne QA&quot;)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="error"></td><td class="desc">[API/BD] Se verifica que &quot;Carne QA&quot; tenga 0 kg a S/ 0 de costo promedio y S/ 0 sin impuestos; el Kardex devuelve 0 kg a S/ 0 y S/ 0 sin impuestos.</td></tr>
+      <tr class="ok"><td class="num">6</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">3. registrarOC(50kg@20)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="error"></td><td class="desc">[FRONT-&gt;API] Se pacta la Orden de Compra por 50 kg a S/ 20/kg (total S/ 1000.00) con el proveedor (id=370). No mueve stock todavía.</td></tr>
+      <tr class="ok"><td class="num">7</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">validarStock(&quot;Carne QA&quot;)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="error"></td><td class="desc">[API/BD] Se verifica que &quot;Carne QA&quot; tenga 0 kg a S/ 0 de costo promedio y S/ 0 sin impuestos; el Kardex devuelve 0 kg a S/ 0 y S/ 0 sin impuestos.</td></tr>
+      <tr class="ok"><td class="num">8</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">4. registrarCompra canje OC (50@20)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="error"></td><td class="desc">[FRONT-&gt;API] Se recibe la mercadería canjeando la OC: ingresan 50 kg a S/ 20/kg al Almacén Principal (compra id=1210). Primera entrada real al Kardex.</td></tr>
+      <tr class="ok"><td class="num">9</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">validarStock(&quot;Carne QA&quot;)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">50</td><td class="num">20</td><td class="num">16.949</td><td class="num">50</td><td class="num">20</td><td class="num">16.949</td><td class="error"></td><td class="desc">[API/BD] Se verifica que &quot;Carne QA&quot; tenga 50 kg a S/ 20 de costo promedio y S/ 16.949 sin impuestos; el Kardex devuelve 50 kg a S/ 20 y S/ 16.949 sin impuestos.</td></tr>
+      <tr class="ok"><td class="num">10</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">5. registrarCompra (50@30)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="error"></td><td class="desc">[FRONT-&gt;API] Se registra una compra directa de 50 kg a S/ 30/kg en el Almacén Principal (id=1211), que recalcula el costo promedio ponderado.</td></tr>
+      <tr class="ok"><td class="num">11</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">validarStock(&quot;Carne QA&quot;)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">100</td><td class="num">25</td><td class="num">21.187</td><td class="num">100</td><td class="num">25</td><td class="num">21.187</td><td class="error"></td><td class="desc">[API/BD] Se verifica que &quot;Carne QA&quot; tenga 100 kg a S/ 25 de costo promedio y S/ 21.187 sin impuestos; el Kardex devuelve 100 kg a S/ 25 y S/ 21.187 sin impuestos.</td></tr>
+      <tr class="ok"><td class="num">12</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">6. notaCredito devuelve 10</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="error"></td><td class="desc">[FRONT-&gt;API] Se devuelve 10 kg al proveedor con Nota de Crédito: descuenta cantidad pero congela el costo promedio (id=1).</td></tr>
+      <tr class="ok"><td class="num">13</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">validarStock(&quot;Carne QA&quot;)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">90</td><td class="num">25</td><td class="num">21.187</td><td class="num">90</td><td class="num">25</td><td class="num">21.187</td><td class="error"></td><td class="desc">[API/BD] Se verifica que &quot;Carne QA&quot; tenga 90 kg a S/ 25 de costo promedio y S/ 21.187 sin impuestos; el Kardex devuelve 90 kg a S/ 25 y S/ 21.187 sin impuestos.</td></tr>
+      <tr class="ok"><td class="num">14</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">7. registrarCompra (20@50)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="error"></td><td class="desc">[FRONT-&gt;API] Se registra una compra directa de 20 kg a S/ 50/kg en el Almacén Principal (id=1212), que recalcula el costo promedio ponderado.</td></tr>
+      <tr class="ok"><td class="num">15</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">validarStock(&quot;Carne QA&quot;)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">110</td><td class="num">29.545</td><td class="num">25.039</td><td class="num">110</td><td class="num">29.545</td><td class="num">25.039</td><td class="error"></td><td class="desc">[API/BD] Se verifica que &quot;Carne QA&quot; tenga 110 kg a S/ 29.545 de costo promedio y S/ 25.039 sin impuestos; el Kardex devuelve 110 kg a S/ 29.545 y S/ 25.039 sin impuestos.</td></tr>
+      <tr class="ok"><td class="num">16</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">8. anularCompra(3) LIFO</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="error"></td><td class="desc">[FRONT-&gt;API] Se anula la última compra (LIFO): el sistema revierte su entrada vía contra-movimiento y el costo vuelve al valor anterior.</td></tr>
+      <tr class="ok"><td class="num">17</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">validarStock(&quot;Carne QA&quot;)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">90</td><td class="num">25</td><td class="num">21.187</td><td class="num">90</td><td class="num">25</td><td class="num">21.187</td><td class="error"></td><td class="desc">[API/BD] Se verifica que &quot;Carne QA&quot; tenga 90 kg a S/ 25 de costo promedio y S/ 21.187 sin impuestos; el Kardex devuelve 90 kg a S/ 25 y S/ 21.187 sin impuestos.</td></tr>
+      <tr class="ok"><td class="num">18</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">9. anularOC con compra vigente (debe bloquear)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="error"></td><td class="desc">[FRONT-&gt;API] Se intenta anular la Orden de Compra con su compra vigente: el sistema debe bloquear la operación por documento hijo activo, sin tocar el stock. [real: bloqueada por el sistema]</td></tr>
+      <tr class="ok"><td class="num">19</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">validarStock(&quot;Carne QA&quot;)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">90</td><td class="num">25</td><td class="num">21.187</td><td class="num">90</td><td class="num">25</td><td class="num">21.187</td><td class="error"></td><td class="desc">[API/BD] Se verifica que &quot;Carne QA&quot; tenga 90 kg a S/ 25 de costo promedio y S/ 21.187 sin impuestos; el Kardex devuelve 90 kg a S/ 25 y S/ 21.187 sin impuestos.</td></tr>
+      <tr class="ok"><td class="num">20</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">9A. crearInsumo('Exonerado QA') 0kg</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="error"></td><td class="desc">[FRONT-&gt;API] 9A. crearInsumo('Exonerado QA') 0kg [real: id=1621]</td></tr>
+      <tr class="ok"><td class="num">21</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">9B. compra exonerada (10@10 sin IGV)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="error"></td><td class="desc">[FRONT-&gt;API] 9B. compra exonerada (10@10 sin IGV) [real: id=1213]</td></tr>
+      <tr class="ok"><td class="num">22</td><td class="fase">Bloque 1: Aprovisionamiento</td><td class="paso">validarStock(&quot;Insumo Exonerado QA&quot;)</td><td class="estado"><span class="badge ok">Éxito</span></td><td class="num">10</td><td class="num">10</td><td class="num">10</td><td class="num">10</td><td class="num">10</td><td class="num">10</td><td class="error"></td><td class="desc">[API/BD] Se verifica que &quot;Insumo Exonerado QA&quot; tenga 10 kg a S/ 10 de costo promedio y S/ 10 sin impuestos; el Kardex devuelve 10 kg a S/ 10 y S/ 10 sin impuestos.</td></tr>
+  </tbody></table>
+  <footer>logisticaview-rpa-bot · npm run test:e2e</footer>
+</body>
+</html>

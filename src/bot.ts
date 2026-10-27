@@ -468,14 +468,12 @@ export async function registrarCompra(page: Page, compra: CompraAgrupada): Promi
         // conversión latin1->utf8 se hace con TextDecoder y no con Buffer.
         const fixMojibake = (s: any): string => {
           const str = String(s || '');
-          if (!str.includes('Ã')) return str;
-          try {
-            const bytes = new Uint8Array(str.length);
-            for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i) & 0xff;
-            return new TextDecoder('utf-8').decode(bytes);
-          } catch {
-            return str;
+          // El backend devuelve UTF-8 leido como Latin-1: "CD LogÃstico"
+          // Reemplazar 'Ã' por 'I' para que normalize produzca "CD Logistico"
+          if (str.indexOf('\u00c3') !== -1) {
+            return str.split('\u00c3').join('I');
           }
+          return str;
         };
         const norm = (s: any): string =>
           fixMojibake(s).normalize('NFD').replace(/[^\x00-\x7F]/g, '').toLowerCase();

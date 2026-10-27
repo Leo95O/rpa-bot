@@ -79,7 +79,14 @@
 |---|---|
 | `formato-excel.md` | Estructura del `.xlsx` que lee el bot (hojas `INSUMOS`/`COMPRAS`, columnas exactas, agrupación por `ID_OPERACION`+`TIPO_FILA`). |
 
-## 5. `qa/` — Matrices y reglas de verificación
+## 5. `php8/` — Migración a PHP 8.5 (errores y dependencias)
+| Documento | Para qué sirve |
+|---|---|
+| `README.md` | Índice de la carpeta: errores del backend PHP 8.5 y dependencias del bot. |
+| `actualizacionbot/README.md` | Errores/modificaciones del backend a las que el bot debe adaptarse. |
+| `dependencias/README.md` | Dependencias del bot (rutas, binarios, BD, configs) que deben existir. |
+
+## 6. `qa/` — Matrices y reglas de verificación
 
 | Documento | Para qué sirve |
 |---|---|

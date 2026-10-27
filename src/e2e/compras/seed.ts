@@ -10,6 +10,33 @@ const DB = {
   database: process.env.DB_NAME || 'logisticaaa',
 };
 
+/**
+ * Resuelve la ruta del binario mysql.exe del entorno actual.
+ * Prioridad: DB_MYSQL_BIN env > XAMPP > Laragon (auto-detect) > 'mysql' en PATH.
+ */
+export function resolverMysqlBin(): string {
+  if (process.env.DB_MYSQL_BIN) return process.env.DB_MYSQL_BIN;
+  const fs = require('fs');
+  // Laragon primero (BD siempre es la de Laragon)
+  try {
+    const laragonBase = 'C:\\\\laragon\\\\bin\\\\mysql';
+    if (fs.existsSync(laragonBase)) {
+      const dirs = fs.readdirSync(laragonBase);
+      // Preferir mysql-* sobre mariadb-* (misma version que el servidor)
+      const mysqlDirs = dirs.filter((d: string) => d.startsWith('mysql-'));
+      const allDirs = mysqlDirs.length > 0 ? mysqlDirs : dirs;
+      for (const d of allDirs) {
+        const candidate = laragonBase + '\\\\' + d + '\\\\bin\\\\mysql.exe';
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+  } catch {}
+  // Fallback: XAMPP
+  const xampp = 'C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe';
+  if (fs.existsSync(xampp)) return xampp;
+  return 'mysql';
+}
+
 async function conn() {
   return mysql.createConnection(DB);
 }
@@ -18,6 +45,13 @@ export async function limpiarTransaccionales(): Promise<void> {
   const c = await conn();
   try {
     await c.query('SET FOREIGN_KEY_CHECKS = 0');
+    // Limpiar duplicados de configuracionlocal (mantener solo el primero por configuracion_id + local_id)
+    await c.query(
+      'DELETE c1 FROM configuracionlocal c1 INNER JOIN configuracionlocal c2 ' +
+      'WHERE c1.configuracionlocal_id > c2.configuracionlocal_id ' +
+      'AND c1.configuracion_id = c2.configuracion_id ' +
+      'AND c1.local_id = c2.local_id',
+    );
     const tablas = [
       'detallecompra', 'compra', 'detalleguia', 'guia',
       'detalleordencompra', 'ordencompra',
@@ -29,6 +63,9 @@ export async function limpiarTransaccionales(): Promise<void> {
       'ordenrequerimientocompra', 'comprasporpagar', 'detallecomprasporpagar',
       'egreso', 'ingreso', 'merma', 'detallemerma',
       'detallecompramanual', 'avancecompra', 'detalleavancecompra',
+      'detalleordenproduccion', 'ordenproduccion',
+      'requerimientomovimiento',
+      'detallesolitudmovimiento', 'solitudmovimiento',
     ];
     for (const t of tablas) {
       await c.query(`DELETE FROM ${t} WHERE ${t}_id > 0`);

@@ -69,6 +69,7 @@ export interface LineaDetalle {
   almacenId: number;
   afecto: boolean;
   descripcion?: string;
+  descuento?: number;
 }
 
 export interface TotalesCompra {

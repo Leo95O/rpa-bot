@@ -19,16 +19,23 @@ import { ejecutarFlujo } from './compras/suite';
 import { leerIgvFiscalizado, leerTipoCambio, seedMaestros } from './compras/seed';
 
 async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  const soloBloques = args.includes('--solo-bloques');
+  const soloCompras = args.includes('--solo-compras');
+  const correrTodo = args.includes('--all') || (!soloBloques && !soloCompras);
+
   const ctx = await abrirStandalone(true);
 
   // Seed de compras (maestros + configs)
   console.log('\n== Seed Compras ==');
   const { execSync } = await import('child_process');
   const path = await import('path');
+  const { resolverMysqlBin } = await import('./compras/seed');
   const seedPath = path.resolve('data', 'seed_compras.sql');
+  const mysqlBin = resolverMysqlBin();
   try {
-    execSync(`C:\\xampp\\mysql\\bin\\mysql.exe -u root logisticaaa < "${seedPath}"`, { stdio: 'pipe' });
-    console.log('  Seed ejecutado');
+    execSync(`"${mysqlBin}" -u root logisticaaa < "${seedPath}"`, { stdio: 'pipe', shell: true } as any);
+    console.log('  Seed ejecutado (bin: ' + mysqlBin + ')');
   } catch (e) {
     console.warn('  Warning: seed SQL falló, usando maestros existentes', e);
   }
@@ -84,9 +91,12 @@ async function main(): Promise<void> {
     igv,
   };
 
-  // Flujos de compras F1-F13
-  console.log('\n== Módulo: Compras (F1-F13) ==');
-  const flujosCompras = ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', 'F13'];
+  // Flujos de compras F1-F26 (los no implementados se reportan como PENDIENTES).
+  console.log('\n== Módulo: Compras (F1-F26) ==');
+  const flujosCompras = [
+    'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', 'F13',
+    'F14', 'F15', 'F16', 'F17', 'F18', 'F19', 'F20', 'F21', 'F22', 'F23', 'F24', 'F25', 'F26',
+  ];
   for (const fid of flujosCompras) {
     console.log(`\n--- Flujo ${fid} ---`);
     const r = await ejecutarFlujo(ctx.page, ctxCompras, ctxCompras.estado, fid);

@@ -475,6 +475,34 @@ export async function leerUltimaMovimientoConsumible(
   }
 }
 
+/** Movimientos vivos de un ítem en un almacén (para verificar entradas y salidas). */
+export async function leerMovimientos(
+  insumoId: number,
+  almacenId: number,
+): Promise<Array<{ tipo: number; cantidad: number; costo: number; motivo: number }>> {
+  try {
+    const conn = await conexion();
+    try {
+      const [rows] = await conn.query(
+        'SELECT movimientoalmaceninsumo_tipo AS tipo, movimientoalmaceninsumo_cantidad AS cant, ' +
+          'movimientoalmaceninsumo_costooperacion AS costo, movimientoalmaceninsumo_motivo AS motivo ' +
+          'FROM movimientoalmaceninsumo WHERE insumo_id = ? AND almacen_id = ? ' +
+          "AND (movimientoalmaceninsumo_fueeliminado IS NULL OR movimientoalmaceninsumo_fueeliminado != '1') " +
+          'ORDER BY movimientoalmaceninsumo_id ASC',
+        [insumoId, almacenId],
+      );
+      return (rows as Array<{ tipo: number; cant: number; costo: number; motivo: number }>).map((m) => ({
+        tipo: Number(m.tipo), cantidad: Number(m.cant), costo: Number(m.costo), motivo: Number(m.motivo),
+      }));
+    } finally {
+      await conn.end();
+    }
+  } catch (e) {
+    console.error('[DIAC][leerMovimientos] ' + (e instanceof Error ? e.message : String(e)));
+    return [];
+  }
+}
+
 /**
  * Detalle persistido de una OC.
  * La tabla NO tiene columna de costo unitario: guarda el IMPORTE en

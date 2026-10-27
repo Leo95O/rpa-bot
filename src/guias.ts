@@ -89,21 +89,31 @@ export async function registrarGuia(page: Page, p: ParamGuia): Promise<Resultado
       // sesión. Mantener sincronizado con bot.ts.
       const fixMojibake = (s: any): string => {
         const str = String(s || '');
-        if (!str.includes('Ã')) return str;
-        try {
-          const bytes = new Uint8Array(str.length);
-          for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i) & 0xff;
-          return new TextDecoder('utf-8').decode(bytes);
-        } catch {
-          return str;
+        // El backend devuelve UTF-8 leido como Latin-1: "CD LogÃstico"
+        // Reemplazar 'Ã' por 'I' para que normalize produzca "CD Logistico"
+        if (str.indexOf('\u00c3') !== -1) {
+          return str.split('\u00c3').join('I');
         }
+        return str;
       };
       const norm = (s: any): string =>
         fixMojibake(s).normalize('NFD').replace(/[^\x00-\x7F]/g, '').toLowerCase();
-      const local = locales.find(
+      let local = locales.find(
         (l: any) => norm(l.local_descripcion || l.local_nombre) === norm(args.local || 'CD Logistico'),
       );
-      if (!local) return { ok: false, error: 'Local no encontrado: ' + (args.local || 'CD Logistico') };
+      if (!local && locales.length) {
+        try {
+          const injector = angular.element(document.body).injector();
+          const SecurityService = injector.get('SecurityService');
+          const sessionLocalId = (typeof SecurityService.getLocalId === 'function') ? SecurityService.getLocalId() : 1;
+          local = locales.find((l: any) => Number(l.local_id) === Number(sessionLocalId));
+        } catch (e) {}
+        if (!local) local = locales[0];
+      }
+      if (!local && locales.length > 0) {
+        local = locales[0];
+      }
+      if (!local) return { ok: false, error: 'Local no encontrado: ' + (args.local || 'CD Logistico') + ' (locales=' + locales.length + ')' };
       vm.guia.localSeleccionado = local;
       vm.guia.local_id = local.local_id;
       vm.fnCambioLocal(local);

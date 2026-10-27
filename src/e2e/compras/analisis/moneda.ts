@@ -45,7 +45,8 @@ export async function analizarUltimoPrecioPorMoneda(
         `SELECT dc.detallecompra_costo AS costo, c.compra_tipocambio AS tc
          FROM detallecompra dc
          INNER JOIN compra c ON dc.compra_id = c.compra_id
-         WHERE dc.insumo_id = ? AND c.local_id = ? AND c.moneda_id = ?
+         LEFT JOIN presentacioninsumo pi ON pi.presentacioninsumo_id = dc.presentacioninsumo_id
+         WHERE (pi.insumo_id = ?) AND c.local_id = ? AND c.moneda_id = ?
            AND dc.detallecompra_costo > 0
          ORDER BY c.compra_fecha DESC LIMIT 1`,
         [insumoId, localId, monedaId],

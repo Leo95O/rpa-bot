@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --green-bg:#dcfce7; --green-fg:#166534; --red-bg:#fee2e2; --red-fg:#991b1b; --ink:#0f172a; --muted:#64748b; }
+  * { box-sizing:border-box; }
+  body { font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif; color:var(--ink); margin:32px; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  header { border-bottom:3px solid #0f172a; padding-bottom:12px; margin-bottom:16px; }
+  h1 { font-size:22px; margin:0; }
+  .sub { color:var(--muted); font-size:12px; margin-top:4px; }
+  .cards { display:flex; gap:12px; margin:16px 0; }
+  .card { flex:1; border-radius:12px; padding:12px 16px; background:#f1f5f9; }
+  .card b { font-size:22px; display:block; }
+  .card.ok { background:var(--green-bg); color:var(--green-fg); }
+  .card.fail { background:var(--red-bg); color:var(--red-fg); }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  thead th { background:#0f172a; color:#fff; text-align:left; padding:10px 8px; }
+  tbody td { padding:8px; border-bottom:1px solid #e2e8f0; vertical-align:top; }
+  tr.ok { background-color:var(--green-bg); }
+  tr.fail { background-color:var(--red-bg); }
+  .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-weight:700; font-size:11px; }
+  .badge.ok { background:var(--green-fg); color:#fff; }
+  .badge.fail { background:var(--red-fg); color:#fff; }
+  .fase { white-space:nowrap; font-weight:600; }
+  .error { color:var(--red-fg); }
+  footer { margin-top:16px; color:var(--muted); font-size:11px; }
+</style>
+</head>
+<body>
+  <header><h1>Reporte E2E — Bot Logística</h1><div class="sub">Generado: 25/9/2026, 1:56:30 p.m. | Total: 33</div></header>
+  <div class="cards"><div class="card ok"><b>6</b>Éxitos</div><div class="card fail"><b>27</b>Fallos</div></div>
+  <table><thead><tr><th>Fase</th><th>Paso</th><th>Estado</th><th>Esperado</th><th>Real</th><th>Error</th></tr></thead>
+  <tbody>
+      <tr class="ok"><td class="fase">Fase 1: Insumos</td><td class="paso">kardex.obtenerEstadoGlobal()</td><td class="estado"><span class="badge ok">Éxito</span></td><td>—</td><td>{&quot;fecha&quot;:&quot;2026-09-25T18:53:00.658Z&quot;,&quot;insumos&quot;:[]}</td><td class="error"></td></tr>
+      <tr class="fail"><td class="fase">Fase 1: Insumos</td><td class="paso">bot.crearInsumo('test A')</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>—</td><td class="error">TimeoutError: page.waitForFunction: Timeout 60000ms exceeded.</td></tr>
+      <tr class="fail"><td class="fase">Fase 1: Insumos</td><td class="paso">bot.consultarInsumo('test A')</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>id=null</td><td class="error"></td></tr>
+      <tr class="fail"><td class="fase">Fase 1: Insumos</td><td class="paso">validarStock(&quot;test A&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=10; costo=2</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test A&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="fail"><td class="fase">Fase 1: Insumos</td><td class="paso">bot.crearInsumo('test B')</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>—</td><td class="error">TimeoutError: page.waitForFunction: Timeout 60000ms exceeded.</td></tr>
+      <tr class="fail"><td class="fase">Fase 1: Insumos</td><td class="paso">bot.consultarInsumo('test B')</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>id=null</td><td class="error"></td></tr>
+      <tr class="fail"><td class="fase">Fase 1: Insumos</td><td class="paso">validarStock(&quot;test B&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=20; costo=0.83</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test B&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="fail"><td class="fase">Fase 1: Insumos</td><td class="paso">bot.agregarPresentacion('test B', 'Caja de 24', 24, 20)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>—</td><td class="error">Insumo no encontrado: test B</td></tr>
+      <tr class="ok"><td class="fase">Fase 2: Compras</td><td class="paso">kardex.obtenerEstadoGlobal()</td><td class="estado"><span class="badge ok">Éxito</span></td><td>—</td><td>{&quot;fecha&quot;:&quot;2026-09-25T18:55:06.257Z&quot;,&quot;insumos&quot;:[]}</td><td class="error"></td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">compras.registrarCompra(1) A(10u@3) B(2cajas@22) total=74</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>—</td><td class="error">Item no encontrado (código=&quot;&quot;, nombre=&quot;test A&quot;).</td></tr>
+      <tr class="ok"><td class="fase">Fase 2: Compras</td><td class="paso">compras.consultarCompra(1)</td><td class="estado"><span class="badge ok">Éxito</span></td><td>—</td><td>compra=undefined</td><td class="error"></td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">validarStock(&quot;test A&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=20; costo=2.5</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test A&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">validarStock(&quot;test B&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=44; costo=1.377</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test B&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">compras.modificarCompra(1)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>—</td><td class="error">TimeoutError: page.waitForFunction: Timeout 60000ms exceeded.</td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">validarStock(&quot;test A&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=15; costo=2.5</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test A&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">validarStock(&quot;test B&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=56; costo=1.582</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test B&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">compras.registrarCompra(2) A(10u@2.75) B(1caja@24) total=51.5</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>—</td><td class="error">Item no encontrado (código=&quot;&quot;, nombre=&quot;test A&quot;).</td></tr>
+      <tr class="ok"><td class="fase">Fase 2: Compras</td><td class="paso">compras.consultarCompra(2)</td><td class="estado"><span class="badge ok">Éxito</span></td><td>—</td><td>compra=undefined</td><td class="error"></td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">validarStock(&quot;test A&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=25; costo=2.6</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test A&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">validarStock(&quot;test B&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=68; costo=1.656</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test B&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">compras.anularCompra(1) devolverStock</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>—</td><td class="error">Error, no fue posible encontrar la compra que desea anular.</td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">validarStock(&quot;test A&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=20; costo=2.375</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test A&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">validarStock(&quot;test B&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=32; costo=1.269</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test B&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">compras.registrarNotaCredito(2) devolver 2u de A</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>—</td><td class="error">Item no encontrado en la compra: test A Muestra volcada en: C:\Practicas\RESTAURANT_PROYECT\rpa-bot\data\debug_notaCredito_1790362580467.json</td></tr>
+      <tr class="fail"><td class="fase">Fase 2: Compras</td><td class="paso">validarStock(&quot;test A&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=18; costo=2.375</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test A&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="ok"><td class="fase">Fase 3: Guías</td><td class="paso">kardex.obtenerEstadoGlobal()</td><td class="estado"><span class="badge ok">Éxito</span></td><td>—</td><td>{&quot;fecha&quot;:&quot;2026-09-25T18:56:23.046Z&quot;,&quot;insumos&quot;:[]}</td><td class="error"></td></tr>
+      <tr class="fail"><td class="fase">Fase 3: Guías</td><td class="paso">guias.registrarGuia() A(5u@2.75)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>—</td><td class="error">Item no encontrado: test A</td></tr>
+      <tr class="ok"><td class="fase">Fase 3: Guías</td><td class="paso">guias.consultarGuia()</td><td class="estado"><span class="badge ok">Éxito</span></td><td>—</td><td>guia=undefined</td><td class="error"></td></tr>
+      <tr class="fail"><td class="fase">Fase 3: Guías</td><td class="paso">validarStock(&quot;test A&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=23; costo=2.457</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test A&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="fail"><td class="fase">Fase 3: Guías</td><td class="paso">guias.modificarGuia() A(10u@2.75)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>—</td><td class="error">No se encontró editarGuiaCompraCtrl.</td></tr>
+      <tr class="fail"><td class="fase">Fase 3: Guías</td><td class="paso">validarStock(&quot;test A&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=28; costo=2.509</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test A&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+      <tr class="fail"><td class="fase">Fase 3: Guías</td><td class="paso">guias.anularGuia()</td><td class="estado"><span class="badge fail">Fallo</span></td><td>—</td><td>—</td><td class="error">Internal Server Error; [object Object]</td></tr>
+      <tr class="fail"><td class="fase">Fase 3: Guías</td><td class="paso">validarStock(&quot;test A&quot;)</td><td class="estado"><span class="badge fail">Fallo</span></td><td>stock=18; costo=2.375</td><td>—</td><td class="error">page.evaluate: Error: No se encontró el insumo &quot;test A&quot;.
+    at eval (eval at evaluate (:311:30), &lt;anonymous&gt;:12:19)
+    at async &lt;anonymous&gt;:337:30</td></tr>
+  </tbody></table>
+  <footer>logisticaview-rpa-bot · npm run test:e2e</footer>
+</body>
+</html>

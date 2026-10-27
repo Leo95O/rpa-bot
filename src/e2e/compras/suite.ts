@@ -93,8 +93,10 @@ export async function ejecutarSuite(
 function aplicarSeedCompras(): void {
   const { execSync } = require('child_process') as typeof import('child_process');
   const nodePath = require('path') as typeof import('path');
+  const { resolverMysqlBin } = require('./seed') as { resolverMysqlBin: () => string };
   const seedPath = nodePath.resolve('data', 'seed_compras.sql');
-  execSync(`C:\\xampp\\mysql\\bin\\mysql.exe -u root logisticaaa < "${seedPath}"`, { stdio: 'pipe' });
+  const mysqlBin = resolverMysqlBin();
+  execSync(`"${mysqlBin}" -u root logisticaaa < "${seedPath}"`, { stdio: 'pipe', shell: true } as any);
 }
 
 /**
