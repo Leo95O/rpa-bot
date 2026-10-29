@@ -76,6 +76,21 @@ export async function crearOP(page: Page, insumoId: number, cantidad: number, al
 }
 
 /**
+ * Mensaje legible de una respuesta fallida del Resource. Ante un HTTP 500,
+ * `UtilityService.parseError` deja `tipo=500, mensajes=[statusText, errorHttp]`
+ * y la causa real viene en el HTML de Slim ("Message: SQLSTATE[42S02]...").
+ * Sin esto el reporte mostraba "[object Object]" o un veredicto engañoso.
+ * El evaluate debe mapear antes cada mensaje no-string a su `.data` (HTML).
+ */
+export function describirFallo(tipo: unknown, mensajes: string[] | undefined): string {
+  const textos = (mensajes || []).map((m) => {
+    const slim = /Message:<\/strong>\s*([^<]+)/.exec(m);
+    return slim ? slim[1].trim() : m.slice(0, 200);
+  }).filter((m) => m);
+  return 'tipo=' + tipo + ': ' + (textos.join('; ') || 'sin detalle');
+}
+
+/**
  * Faltantes reales: `obtenerParaAbastecer` devuelve la OP con `itemPorAbastecer[]`
  * cuyos items llevan `item_cantidad` (NO claves *faltante*: esas solo existen en
  * ToolInsumos internos). Se extrae esa lista con precisión en vez de escanear.
@@ -119,7 +134,11 @@ async function evaluarFaltantes(page: Page, opId: number): Promise<{ ok: boolean
       const injector = angular.element(document.body).injector();
       const R = injector.get('OrdenproduccionResource');
       const resp = await R.obtenerParaAbastecer(args.id, args.almacenId, '1');
-      return { ok: Number(resp.tipo) === 1, raw: resp.data !== undefined ? resp.data : resp };
+      if (Number(resp.tipo) !== 1) {
+        const mensajes = (resp.mensajes || []).map((m: any) => typeof m === 'string' ? m : String((m && m.data) || ''));
+        return { ok: false, tipo: resp.tipo, mensajes };
+      }
+      return { ok: true, raw: resp.data };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -133,7 +152,10 @@ async function evaluarFaltantes(page: Page, opId: number): Promise<{ ok: boolean
     const resp = await endpoint;
     await leerRespuesta(resp);
   } catch { /* solo diagnóstico */ }
-  if (!r.ok) return { ok: false, faltantes: [], error: (r as { error?: string }).error };
+  if (!r.ok) {
+    const f = r as { error?: string; tipo?: unknown; mensajes?: string[] };
+    return { ok: false, faltantes: [], error: 'obtenerParaAbastecer falló: ' + (f.error || describirFallo(f.tipo, f.mensajes)) };
+  }
   return { ok: true, faltantes: numerosFaltante((r as { raw?: unknown }).raw), raw: (r as { raw?: unknown }).raw };
 }
 
@@ -144,34 +166,49 @@ async function generarDesvioInterno(page: Page, opId: number): Promise<{ ok: boo
       const injector = angular.element(document.body).injector();
       const R = injector.get('OrdenproduccionResource');
       const resp = await R.generarOrdenMovimiento(id);
-      const raw = { tipo: resp.tipo, mensajes: resp.mensajes, data: resp.data };
+      const mensajes = (resp.mensajes || []).map((m: any) => typeof m === 'string' ? m : String((m && m.data) || ''));
+      const raw = { tipo: resp.tipo, mensajes, data: resp.data };
       if (Number(resp.tipo) === 1) return { ok: true, raw };
-      return { ok: false, error: (resp.mensajes || []).join('; '), raw };
+      return { ok: false, raw };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }, opId);
-  diag('[DIAG DesvioInt] ' + JSON.stringify({ ok: r.ok, error: r.error, raw: r.raw }).slice(0, 2000));
+  const raw = (r as { raw?: { tipo: unknown; mensajes: string[] } }).raw;
+  const error = r.ok ? undefined : ((r as { error?: string }).error || describirFallo(raw?.tipo, raw?.mensajes));
+  diag('[DIAG DesvioInt] ' + JSON.stringify({ ok: r.ok, error }).slice(0, 2000));
   try {
     const resp = await endpoint;
     await leerRespuesta(resp);
   } catch { /* solo diagnóstico */ }
-  return r;
+  return { ok: r.ok, error, raw };
 }
 
+/**
+ * Lee la cabecera de la OP. Si el endpoint falla (p. ej. HTTP 500) devuelve
+ * `error` con la causa y SIN `raw`: antes devolvía `estado=undefined, raw=null`
+ * y los llamadores reportaban "no está pendiente" o reventaban leyendo null.
+ */
 export async function consultarOP(page: Page, opId: number): Promise<{ estado?: number; error?: string; raw?: unknown }> {
-  return page.evaluate(async (id) => {
+  const r = await page.evaluate(async (id) => {
     try {
       const injector = angular.element(document.body).injector();
       const R = injector.get('OrdenproduccionResource');
       const resp = await R.obtener(id);
-      const d = resp && resp.data ? resp.data : null;
-      const cab = d && d.ordenproduccion ? d.ordenproduccion : d;
-      return { estado: cab ? Number(cab.ordenproduccion_estado) : undefined, raw: cab };
+      if (Number(resp.tipo) !== 1 || !resp.data) {
+        const mensajes = (resp.mensajes || []).map((m: any) => typeof m === 'string' ? m : String((m && m.data) || ''));
+        return { tipo: resp.tipo, mensajes };
+      }
+      const d = resp.data;
+      const cab = d.ordenproduccion ? d.ordenproduccion : d;
+      return { estado: Number(cab.ordenproduccion_estado), raw: cab };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
   }, opId);
+  const f = r as { estado?: number; raw?: unknown; error?: string; tipo?: unknown; mensajes?: string[] };
+  if (f.raw !== undefined) return { estado: f.estado, raw: f.raw };
+  return { error: 'obtener OP #' + opId + ' falló: ' + (f.error || describirFallo(f.tipo, f.mensajes)) };
 }
 
 async function aprobarOP(page: Page, opId: number): Promise<{ ok: boolean; error?: string; raw?: unknown }> {
@@ -182,9 +219,11 @@ async function aprobarOP(page: Page, opId: number): Promise<{ ok: boolean; error
       const R = injector.get('OrdenproduccionResource');
       const resp = await R.aprobar(id);
       const raw = { tipo: resp.tipo, mensajes: resp.mensajes, data: resp.data };
-      const msgs = Array.isArray(resp.mensajes) ? resp.mensajes.join('; ') : String(resp.mensajes || '');
       if (Number(resp.tipo) === 1) return { ok: true, raw };
-      return { ok: false, error: msgs, raw };
+      const msgs = Array.isArray(resp.mensajes)
+        ? resp.mensajes.map((m: any) => typeof m === 'string' ? m : 'HTTP ' + (m && m.status)).join('; ')
+        : String(resp.mensajes || '');
+      return { ok: false, error: msgs, raw: { tipo: resp.tipo } };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }

@@ -174,11 +174,15 @@ async function compraHelper(
         compra_conretencion: args.conRetencion ? '1' : '0',
         compra_montoretencion: args.montoRetencion || 0,
         // El frontend setea compra.compra_generoimpuestossobretotal (char(1)):
-        // '1' = impuestos NO incluidos en el precio (el backend genera el IGV
-        // encima del total), '0' = impuestos incluidos (el backend desgrava).
-        // La clave "generarIGV_sobreTotal" que mandaba antes NO la lee el parser.
+        // '1' = impuestos NO incluidos en el precio, '0' = impuestos incluidos.
+        // Ese flag solo se persiste; el cálculo por línea lo decide
+        // losImpuestosEstanIncluidosEnElPrecio (CompraLogistica.php:2191/2313):
+        // sin él el backend asume precio CON impuestos y desgrava el neto
+        // (F19: 16.949 → sin_imp 14.36 y Kardex a 16.949 en vez de 20.00).
+        // nuevacompra.controller.js lo envía dentro de compra (vm.compra copiado).
         compra_generoimpuestossobretotal: args.precioNeto ? '1' : '0',
         generarIGV_sobreTotal: args.precioNeto ? '1' : '0',
+        losImpuestosEstanIncluidosEnElPrecio: args.precioNeto ? '0' : '1',
         caja_id: args.saliodecaja ? 1 : null,
         compra_subtotal: args.tot.subtotal,
         compra_igv: args.tot.igv,

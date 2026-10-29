@@ -1,6 +1,7 @@
 import { Page } from 'playwright';
 import { navegar, esperarEndpoint, leerRespuesta } from './bot';
 import { volcarScope } from './utils/debugger';
+import { almacenIdDe } from './almacenes';
 
 declare const angular: any;
 declare const moment: any;
@@ -137,6 +138,7 @@ export async function registrarGuia(page: Page, p: ParamGuia): Promise<Resultado
       }
       let almacenes = (vm.guia.almacenList && vm.guia.almacenList.length) ? vm.guia.almacenList : [];
       let almacen =
+        (args.almacenId != null ? almacenes.find((a: any) => Number(a.almacen_id) === args.almacenId) : null) ||
         almacenes.find((a: any) => a.almacen_descripcion === (args.almacen || 'Almacen Principal')) ||
         vm.guia.almacenSeleccionado ||
         almacenes[0];
@@ -149,7 +151,8 @@ export async function registrarGuia(page: Page, p: ParamGuia): Promise<Resultado
         );
         almacenes = (respAlm && respAlm.data) || [];
         almacen =
-          almacenes.find((a: any) => a.almacen_descripcion === (args.almacen || 'Almacen Principal')) ||
+          (args.almacenId != null ? almacenes.find((a: any) => Number(a.almacen_id) === args.almacenId) : null) ||
+        almacenes.find((a: any) => a.almacen_descripcion === (args.almacen || 'Almacen Principal')) ||
           almacenes[0];
       }
       if (!almacen) return { ok: false, error: 'Almacén no encontrado.' };
@@ -231,7 +234,7 @@ export async function registrarGuia(page: Page, p: ParamGuia): Promise<Resultado
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
-  }, p as any);
+  }, { ...p, almacenId: almacenIdDe(p.almacen || 'Almacen Principal') } as any);
 
   if (!inyeccion.ok) return { ok: false, error: inyeccion.error };
 

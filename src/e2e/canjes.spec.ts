@@ -130,8 +130,8 @@ export async function runBloque6(page: Page, estado: EstadoSuite, reporte: FilaR
   } catch (e) { log({ fase: F, paso: '35. OP canjeReq', ok: false, error: String(e) }); }
   try {
     const c = await consultarOP(page, estado.opReqId!);
-    const raw = c.raw as { requerimientomovimiento_id?: number } | undefined;
-    const ok = raw !== undefined && Number(raw.requerimientomovimiento_id) === estado.reqProdId;
+    const raw = c.raw as { requerimientomovimiento_id?: number } | null | undefined;
+    const ok = raw != null && Number(raw.requerimientomovimiento_id) === estado.reqProdId;
     log({ fase: F, paso: '35. OP referencia requerimiento', ok, real: 'reqMovId=' + (raw ? raw.requerimientomovimiento_id : undefined), error: ok ? undefined : (c.error || 'Sin vínculo.') });
   } catch (e) { log({ fase: F, paso: '35. verificarCanje', ok: false, error: String(e) }); }
   try {

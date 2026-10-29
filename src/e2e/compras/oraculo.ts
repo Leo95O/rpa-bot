@@ -2,6 +2,8 @@
 import { Page } from 'playwright';
 import { ContextoCompra, KardexFila, TotalesCompra } from './tipos';
 import { ppp, precioSin } from './helpers';
+import { esperarSiguienteSegundo } from '../../kardex';
+import { almacenIdDe } from '../../almacenes';
 
 declare const angular: any;
 
@@ -36,6 +38,7 @@ export async function leerStockActual(
   almacenDesc?: string,
 ): Promise<EstadoStock | null> {
   try {
+    await esperarSiguienteSegundo();
     const r = await page.evaluate(
       async (args) => {
         const injector = angular.element(document.body).injector();
@@ -56,7 +59,8 @@ export async function leerStockActual(
         const sr = await Insumo.obtenerStockYCosto(item.item_id);
         const almacenes = sr && sr.data ? sr.data : [];
         const alm = almacenes.find((a: any) =>
-          args.almacen ? String(a.almacen_descripcion || '').toLowerCase().includes(args.almacen.toLowerCase()) : true,
+          args.almacenId != null ? Number(a.almacen_id) === args.almacenId
+            : args.almacen ? String(a.almacen_descripcion || '').toLowerCase().includes(args.almacen.toLowerCase()) : true,
         ) || almacenes[0];
         if (!alm) return { stock: 0, costo: 0, sinImp: 0 };
         const cs = alm.costoStock || {};
@@ -66,7 +70,7 @@ export async function leerStockActual(
           sinImp: cs.costosinimpuesto != null ? Math.round(Number(cs.costosinimpuesto) * 1000) / 1000 : 0,
         };
       },
-      { nombre, almacen: almacenDesc },
+      { nombre, almacen: almacenDesc, almacenId: almacenIdDe(almacenDesc) },
     );
     if (!r) return null;
     return { stock: Number(r.stock || 0), costo: Number(r.costo || 0), sinImp: Number(r.sinImp || 0) };

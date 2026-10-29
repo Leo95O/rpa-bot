@@ -1,6 +1,7 @@
 import { chromium, Browser, Page, Response } from 'playwright';
 import { InsumoAgrupado, CompraAgrupada, ResultadoOperacion } from './types';
 import { buscarInsumo } from './kardex';
+import { refAlmacen } from './almacenes';
 
 declare const angular: any;
 declare const moment: any;
@@ -160,7 +161,7 @@ export async function registrarInsumo(page: Page, insumo: InsumoAgrupado, estado
       grupo.inventario.forEach((inv) => {
         const alm = vm.insumo.almacenes.find(
           (a: any) =>
-            a.almacen_descripcion === inv.almacen || String(a.almacen_id) === String(inv.almacen),
+            String(a.almacen_id) === String(inv.almacen) || a.almacen_descripcion === inv.almacen,
         );
         if (!alm) throw new Error('Almacén no encontrado: ' + inv.almacen);
         alm.almacen_controlar = inv.controlarStock;
@@ -260,7 +261,7 @@ export async function registrarInsumo(page: Page, insumo: InsumoAgrupado, estado
         stack: e instanceof Error ? e.stack : undefined,
       };
     }
-  }, insumo);
+  }, { ...insumo, inventario: insumo.inventario.map((i) => ({ ...i, almacen: refAlmacen(i.almacen) })) });
 
   if (!inyeccion.ok) {
     return {
@@ -340,7 +341,7 @@ export async function registrarCompra(page: Page, compra: CompraAgrupada): Promi
 
       function resolverAlmacen(nombre: string) {
         const alm = vm.compra.almacenList.find(
-          (a: any) => a.almacen_descripcion === nombre || String(a.almacen_id) === String(nombre),
+          (a: any) => String(a.almacen_id) === String(nombre) || a.almacen_descripcion === nombre,
         );
         if (!alm) throw new Error('Almacén no encontrado: ' + nombre);
         return { almacen_id: alm.almacen_id, almacen_descripcion: alm.almacen_descripcion };
@@ -620,7 +621,11 @@ export async function registrarCompra(page: Page, compra: CompraAgrupada): Promi
         stack: e instanceof Error ? e.stack : undefined,
       };
     }
-  }, compra);
+  }, {
+    ...compra,
+    cabecera: { ...compra.cabecera, almacen: refAlmacen(compra.cabecera.almacen || '') },
+    detalle: compra.detalle.map((d) => (d.almacen ? { ...d, almacen: refAlmacen(d.almacen) } : d)),
+  });
 
   if (!inyeccion.ok) {
     return {

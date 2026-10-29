@@ -8,8 +8,9 @@
 
 import { Page } from 'playwright';
 import mysql from 'mysql2/promise';
-import { validarStock } from '../kardex';
+import { validarStock, esperarSiguienteSegundo } from '../kardex';
 import { TOLERANCIA, getDivisorIgv, getBaseline } from './fixtures';
+import { almacenIdDe } from '../almacenes';
 
 declare const angular: any;
 
@@ -40,6 +41,7 @@ export async function leerKardex(
   page: Page, nombre: string, almacenDesc: string,
 ): Promise<{ stock: number; costo: number; costoSinImp: number } | null> {
   try {
+    await esperarSiguienteSegundo();
     const r = await page.evaluate(async (args) => {
       try {
         const injector = angular.element(document.body).injector();
@@ -59,8 +61,9 @@ export async function leerKardex(
         if (!item) return null;
         const sr = await Insumo.obtenerStockYCosto(item.item_id);
         const almacenes = (sr && sr.data) || [];
-        const alm = almacenes.find((a: any) =>
-          String(a.almacen_descripcion || '').toLowerCase().indexOf(String(args.almacen).toLowerCase()) >= 0);
+        const alm = almacenes.find((a: any) => args.almacenId != null
+          ? Number(a.almacen_id) === args.almacenId
+          : String(a.almacen_descripcion || '').toLowerCase().indexOf(String(args.almacen).toLowerCase()) >= 0);
         if (!alm) return { stock: 0, costo: 0, costoSinImp: 0 };
         const cs = alm.costoStock || {};
         return {
@@ -70,7 +73,7 @@ export async function leerKardex(
       } catch {
         return null;
       }
-    }, { nombre, almacen: almacenDesc });
+    }, { nombre, almacen: almacenDesc, almacenId: almacenIdDe(almacenDesc) });
     return r;
   } catch {
     return null;
@@ -99,6 +102,8 @@ export async function resolverIdsSQL(
       if (!likeList.length) return null;
       insumoId = Number(likeList[0].id);
     }
+    const idFijo = almacenIdDe(almacenDesc);
+    if (idFijo !== undefined) return { insumoId, almacenId: idFijo };
     const [alm] = await conn.query(
       'SELECT almacen_id AS id FROM almacen WHERE almacen_descripcion LIKE ? LIMIT 1',
       ['%' + almacenDesc + '%'],
@@ -206,6 +211,7 @@ export async function assertStockInsumoEnAlmacen(
   const esperado = fmtStock(esperadoStock, esperadoCosto, esperadoSinImp) +
     (eff.nota.startsWith('baseline-0/0') ? '' : ' [' + eff.nota + ']');
   try {
+    await esperarSiguienteSegundo();
     const r: { stock: number; costo: number; costoSinImp: number } | null = await page.evaluate(async (args) => {
       try {
         const injector = angular.element(document.body).injector();
@@ -225,8 +231,9 @@ export async function assertStockInsumoEnAlmacen(
         if (!item) return null;
         const sr = await Insumo.obtenerStockYCosto(item.item_id);
         const almacenes = (sr && sr.data) || [];
-        const alm = almacenes.find((a: any) =>
-          String(a.almacen_descripcion || '').toLowerCase().indexOf(String(args.almacen).toLowerCase()) >= 0);
+        const alm = almacenes.find((a: any) => args.almacenId != null
+          ? Number(a.almacen_id) === args.almacenId
+          : String(a.almacen_descripcion || '').toLowerCase().indexOf(String(args.almacen).toLowerCase()) >= 0);
         if (!alm) return { stock: 0, costo: 0, costoSinImp: 0 };
         const cs = alm.costoStock || {};
         const sin = cs.costosinimpuesto !== undefined && cs.costosinimpuesto !== null
@@ -235,7 +242,7 @@ export async function assertStockInsumoEnAlmacen(
       } catch {
         return null;
       }
-    }, { nombre, almacen: almacenDesc });
+    }, { nombre, almacen: almacenDesc, almacenId: almacenIdDe(almacenDesc) });
     if (!r) return { paso, ok: false, esperado, error: 'Insumo o lectura nula.' };
     const real = fmtStock(r.stock, r.costo, r.costoSinImp);
     let ok = Math.abs(r.stock - esperadoStock) < TOLERANCIA && Math.abs(r.costo - eff.costo) < TOLERANCIA;

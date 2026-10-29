@@ -1,4 +1,5 @@
 import { Page } from 'playwright';
+import { ALMACEN_IDS } from './almacenes';
 
 declare const angular: any;
 
@@ -44,6 +45,15 @@ export async function buscarInsumo(page: Page, nombre: string): Promise<{ id: nu
   }, nombre);
 }
 
+// El backend busca la última entrada con `movimientoalmaceninsumo_fecha < date("Y-m-d H:i:s")`
+// (MovimientoalmaceninsumoV2DB.php:109): menor ESTRICTO a nivel de segundo. Un movimiento
+// fechado en el segundo actual todavía no cuenta y la lectura devuelve el estado previo
+// (caso real: F18/F24 leyeron 450/590 con el Kardex ya en 550/640). Antes de leer el
+// Kardex se espera al segundo siguiente.
+export async function esperarSiguienteSegundo(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 1000 - (Date.now() % 1000) + 50));
+}
+
 // Lee el stock + costo promedio de un insumo desde el endpoint autoritativo
 // `producto/insumo/obtenerStockYCosto/{id}` (la misma fuente que alimenta el Kardex).
 // Evita leer el $scope de HandsOnTable, que resultó poco fiable (devolvía 0).
@@ -51,7 +61,8 @@ async function leerStockYCosto(
   page: Page,
   nombre: string,
 ): Promise<{ nombre: string; id: number; stock: number; costo: number; costoSinImp: number }> {
-  return page.evaluate(async (nombre) => {
+  await esperarSiguienteSegundo();
+  return page.evaluate(async ({ nombre, principalId }) => {
     const injector = angular.element(document.body).injector();
     const CommonCollection = injector.get('CommonCollection');
     const Insumo = injector.get('Insumo');
@@ -74,6 +85,7 @@ async function leerStockYCosto(
     const stockResp = await Insumo.obtenerStockYCosto(item.item_id);
     const almacenes = stockResp && stockResp.data ? stockResp.data : [];
     const principal =
+      almacenes.find((a: any) => Number(a.almacen_id) === principalId) ||
       almacenes.find((a: any) => /principal/i.test(a.almacen_descripcion || '')) || almacenes[0];
 
     let stock = 0;
@@ -96,7 +108,7 @@ async function leerStockYCosto(
     }
 
     return { nombre: item.item_descripcion, id: Number(item.item_id), stock, costo, costoSinImp };
-  }, nombre);
+  }, { nombre, principalId: ALMACEN_IDS['Almacen Principal'] });
 }
 
 export async function validarStock(
