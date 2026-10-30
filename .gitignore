@@ -9,3 +9,8 @@ borrar.json
 
 # volcados de diagnostico que escribe el bot (muestras de scope / NC)
 data/debug_*.json
+
+# reportes que genera el bot en cada corrida (HTML/PDF)
+data/Reporte_*.html
+data/Reporte_*.pdf
+data/Checklist_Cobertura.pdf
