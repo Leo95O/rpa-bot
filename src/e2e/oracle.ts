@@ -80,6 +80,25 @@ export async function leerKardex(
   }
 }
 
+/**
+ * UM base del insumo (insumo.unidadmedidainsumo_id). La OP y los ingredientes de la
+ * receta deben ir en esa UM: si no, UnidadmedidainsumoLogistica::conversionUnidadMedida
+ * cruza tipos distintos (p. ej. Kilogramo tipo 100 vs Unidad tipo 1), devuelve 0 y el
+ * MRP cree que sobra stock (faltantes vacíos).
+ */
+export async function unidadBaseInsumo(insumoId: number): Promise<number | null> {
+  const conn = await mysql.createConnection(DB);
+  try {
+    const [rows] = await conn.query('SELECT unidadmedidainsumo_id AS um FROM insumo WHERE insumo_id = ?', [insumoId]);
+    const list = rows as Array<{ um: number }>;
+    return list.length && Number(list[0].um) > 0 ? Number(list[0].um) : null;
+  } catch {
+    return null;
+  } finally {
+    await conn.end();
+  }
+}
+
 /** Resuelve ids por SQL (sin depender del frontend). */
 export async function resolverIdsSQL(
   nombre: string, almacenDesc: string,

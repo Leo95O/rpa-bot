@@ -14,7 +14,7 @@ import { crearInsumo, crearReceta, navegar, esperarEndpoint, leerRespuesta, cerr
 import { registrarCompra } from '../compras';
 import { FilaReporte } from '../types';
 import { QA, QA_TRASLADO, QA_MRP, EstadoSuite } from './fixtures';
-import { assertStockInsumoEnAlmacen } from './oracle';
+import { assertStockInsumoEnAlmacen, unidadBaseInsumo } from './oracle';
 import { generarHtmlReporte, generarPdfReporte, resumirReporte } from '../reporte';
 import { logFila, logVeredicto, abrirStandalone, diag } from './harness';
 import { registrarSolicitud, registrarOrdenCompra } from './aprovisionamiento.spec';
@@ -32,6 +32,7 @@ function ahora(dias = 0): string {
 }
 
 export async function crearOP(page: Page, insumoId: number, cantidad: number, almacenId: number, opts?: { requerimientoId?: number }): Promise<{ ok: boolean; id?: number; error?: string; raw?: unknown }> {
+  const umId = (await unidadBaseInsumo(insumoId)) ?? 1;
   const endpoint = esperarEndpoint(page, 'produccion/ordenproduccion/agregar', 45000).catch(() => null);
   const r = await page.evaluate(async (args) => {
     try {
@@ -53,7 +54,7 @@ export async function crearOP(page: Page, insumoId: number, cantidad: number, al
         detalleordenproduccionList: [{
           almacen_id: args.almacenId,
           insumo_id: args.insumoId,
-          unidadmedidainsumo_id: 1,
+          unidadmedidainsumo_id: args.umId,
           detalleordenproduccion_cantidadestimada: args.cantidad,
           // Sin estado explícito: el backend asigna el default. Enviarlo
           // activa la rama con el bindParam faltante (HY093, DetalleordenproduccionEntity:281-312).
@@ -66,7 +67,7 @@ export async function crearOP(page: Page, insumoId: number, cantidad: number, al
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
-  }, { insumoId, cantidad, almacenId, requerimientoId: opts?.requerimientoId, encargado: QA_MRP.encargado, fecha: ahora() });
+  }, { insumoId, umId, cantidad, almacenId, requerimientoId: opts?.requerimientoId, encargado: QA_MRP.encargado, fecha: ahora() });
   diag('[DIAG OP] ' + JSON.stringify({ ok: r.ok, id: (r as { id?: number }).id, error: r.error, raw: (r as { raw?: unknown }).raw }));
   try {
     const resp = await endpoint;
@@ -259,12 +260,12 @@ export async function runBloque5(page: Page, estado: EstadoSuite, reporte: FilaR
     return;
   }
 
-  // Setup MRP: recetas 1:1 en UNIDAD (1 plato = 1kg). Sin esto la explosión
-  // no encuentra ingredientes (fallos 22/27 de la corrida anterior).
+  // Setup MRP: recetas 1:1 en la UM base del insumo (1 plato = 1 unidad de carne).
+  // Sin esto la explosión no encuentra ingredientes (fallos 22/27 de la corrida anterior).
   try {
     const r = await crearReceta(page, {
       nombre: QA_MRP.plato,
-      ingredientes: [{ insumoId: estado.insumoId!, cantidad: 1, umId: 1 }],
+      ingredientes: [{ insumoId: estado.insumoId!, cantidad: 1, umId: (await unidadBaseInsumo(estado.insumoId!)) ?? 1 }],
     });
     log({ fase: F, paso: "21. crearReceta('Plato QA') 1:1", ok: r.ok, real: r.id !== undefined ? 'id=' + r.id : undefined, error: r.error });
     if (r.ok) estado.platoId = r.id;
@@ -344,7 +345,7 @@ export async function runBloque5(page: Page, estado: EstadoSuite, reporte: FilaR
   try {
     const rp = await crearReceta(page, {
       nombre: QA_MRP.platoImportado,
-      ingredientes: [{ insumoId: estado.importadoId!, cantidad: 1, umId: 1 }],
+      ingredientes: [{ insumoId: estado.importadoId!, cantidad: 1, umId: (await unidadBaseInsumo(estado.importadoId!)) ?? 1 }],
     });
     log({ fase: F, paso: "27. crearReceta('Plato Importado QA') 1:1", ok: rp.ok, real: rp.id !== undefined ? 'id=' + rp.id : undefined, error: rp.error });
     if (rp.ok) estado.platoImportadoId = rp.id;
