@@ -16,7 +16,7 @@ import { abrirStandalone } from './harness';
 import { generarHtmlReporte, generarPdfReporte, resumirReporte } from '../reporte';
 import { FilaReporte } from '../types';
 import { ejecutarFlujo } from './compras/suite';
-import { leerIgvFiscalizado, leerTipoCambio, seedMaestros } from './compras/seed';
+import { leerIgvFiscalizado, leerTipoCambio, seedMaestros, asegurarMaestrosBase } from './compras/seed';
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -39,6 +39,10 @@ async function main(): Promise<void> {
   } catch (e) {
     console.warn('  Warning: seed SQL falló, usando maestros existentes', e);
   }
+
+  // Garantizar maestros base que el bot necesita (unidad de medida 'UNIDAD' y
+  // proveedor 'GRUPO SEVEN SEAS SAC') por si el seed SQL los revierte.
+  await asegurarMaestrosBase();
 
   // Bloques 1-8 PRIMERO: son los que dan de alta los maestros que usan los
   // flujos de Compras ('Carne QA', 'Insumo Exonerado QA', 'Caja de Empaque QA').

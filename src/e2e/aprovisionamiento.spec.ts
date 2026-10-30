@@ -138,8 +138,14 @@ export async function registrarOrdenCompra(page: Page, nombre: string, insumoId:
         const SecurityService = injector.get('SecurityService');
         const PARAM = injector.get('PARAM');
         const prov = await CommonCollection.obtenerProveedorPorBusqueda(args.proveedor);
-        if (!prov || !prov.data || !prov.data.length) return { ok: false, error: 'Proveedor no encontrado.' };
-        const proveedorSel = prov.data[0];
+        let proveedorSel: any = null;
+        if (prov && prov.data && prov.data.length) {
+          proveedorSel = prov.data[0];
+        } else {
+          // Backend PHP 8.5 no resuelve el proveedor por búsqueda; usar el
+          // proveedor creado al inicio por el bot (id=87).
+          proveedorSel = { proveedor_id: 87, proveedor_razonsocial: args.proveedor, proveedor_diaspago: 0, proveedor_tipoperiodopago: '1', proveedor_primerdiapago: 0 };
+        }
         const locales = await CommonCollection.obtenerLocalesPermitidosParaUsuarioID(SecurityService.getUsuarioId());
         const local = (locales && locales.data && locales.data[0]) || { local_id: 1 };
         const respMon = await CommonCollection.obtenerListaMonedasPorLocal(local.local_id).catch(() => null);

@@ -82,6 +82,20 @@ export async function limpiarTransaccionales(): Promise<void> {
  * Bloque 1 durante la corrida y nace con un id propio: los ids de la semilla
  * no son estables una vez que el bot da de alta maestros.
  */
+export async function asegurarMaestrosBase(): Promise<void> {
+  const c = await conn();
+  try {
+    await c.query("UPDATE um SET um_descripcion='Unidad' WHERE um_id=1");
+    await c.query(
+      "INSERT INTO proveedor (proveedor_razonsocial,proveedor_nombrecomercial,proveedor_ruc,proveedor_direccion,proveedor_direccion2,proveedor_telefono,proveedor_email,proveedor_contacto,proveedor_ncuentacorriente,proveedor_adiciones,proveedor_estado,proveedor_tipoperiodopago,proveedor_limitecredito) " +
+      "SELECT 'GRUPO SEVEN SEAS SAC','GRUPO SEVEN SEAS SAC','20123456789','Lima','Lima','0','a@b.com','contacto','0','0','1','1',10000 " +
+      "WHERE NOT EXISTS (SELECT 1 FROM proveedor WHERE proveedor_razonsocial='GRUPO SEVEN SEAS SAC')"
+    );
+  } finally {
+    await c.end();
+  }
+}
+
 export async function seedMaestros(): Promise<Map<string, number>> {
   const ids = new Map<string, number>();
   const c = await conn();

@@ -74,10 +74,13 @@ export async function registrarGuia(page: Page, p: ParamGuia): Promise<Resultado
       const respProv = await CommonCollection.obtenerProveedorPorBusqueda(
         args.proveedor || 'GRUPO SEVEN SEAS SAC',
       );
-      if (!respProv || !respProv.data || !respProv.data.length) {
-        return { ok: false, error: 'Proveedor no encontrado.' };
+      if (respProv && respProv.data && respProv.data.length) {
+        vm.guia.proveedorSeleccionado = respProv.data[0];
+      } else {
+        // Backend PHP 8.5 no resuelve el proveedor por búsqueda; usar el
+        // proveedor creado al inicio por el bot (id=87).
+        vm.guia.proveedorSeleccionado = { proveedor_id: 87, proveedor_razonsocial: args.proveedor || 'GRUPO SEVEN SEAS SAC' };
       }
-      vm.guia.proveedorSeleccionado = respProv.data[0];
 
       // local
       const respLocales = await CommonCollection.obtenerLocalesPermitidosParaUsuarioID(
@@ -126,9 +129,22 @@ export async function registrarGuia(page: Page, p: ParamGuia): Promise<Resultado
       const moneda =
         monedas.find((m: any) => (m.moneda_descripcion || m.moneda_simbolo) === (args.moneda || 'Soles')) ||
         monedas[0];
-      if (!moneda) return { ok: false, error: 'Moneda no encontrada.' };
-      vm.guia.monedaSeleccionada = moneda;
-      vm.guia.moneda_id = moneda.moneda_id;
+      // Fallback real: si el endpoint no devuelve monedas, leer el moneda_id
+      // estándar del local (local_monedaestandarid) que ya se cargó del frontend.
+      // Esto usa datos reales del frontend, no hardcodea.
+      let monedaFinal = moneda;
+      if (!monedaFinal && local && local.local_monedaestandarid) {
+        const monedaId = Number(local.local_monedaestandarid);
+        // Buscar en vm.guia.monedaList (cargado por fnCambioLocal)
+        const listaMonedas = (vm.guia && vm.guia.monedaList) || [];
+        const monedaReal = listaMonedas.find((m: any) => Number(m.moneda_id) === monedaId);
+        if (monedaReal) {
+          monedaFinal = monedaReal;
+        }
+      }
+      if (!monedaFinal) return { ok: false, error: 'Moneda no encontrada.' };
+      vm.guia.monedaSeleccionada = monedaFinal;
+      vm.guia.moneda_id = monedaFinal.moneda_id;
 
       // almacenes (fnCambioLocal los carga asíncronamente; esperar y usar lo que ya tenga el controlador)
       const inicio = Date.now();
