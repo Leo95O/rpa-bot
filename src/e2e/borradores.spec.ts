@@ -79,8 +79,8 @@ async function cicloBorrador(page: Page, log: (f: FilaReporte) => void, etiqueta
   } catch (e) { log({ fase: F, paso: `${etiqueta}. leer BD`, ok: false, error: String(e) }); }
 
   try {
-    const general = await buscarItems(page, nombre, false);
-    const compras = await buscarItems(page, nombre, true);
+    const general = await buscarItems(page, nombre);
+    const compras = await buscarItems(page, nombre, { incluirConversionManual: true });
     const enGeneral = general.some((f) => f.itemId === id);
     const enCompras = compras.some((f) => f.itemId === id);
     log({ fase: F, paso: `${etiqueta}. buscador general (kárdex/recetas/movimientos) NO lo muestra`, ok: !enGeneral, esperado: 'ausente', real: enGeneral ? 'aparece (defecto)' : 'ausente' });
@@ -93,7 +93,7 @@ async function cicloBorrador(page: Page, log: (f: FilaReporte) => void, etiqueta
     if (!p.ok) return;
     const bd = await leerEstadoYApertura(id);
     log({ fase: F, paso: `${etiqueta}. publicado: insumo_estado = 1`, ok: bd.estado === '1', esperado: '1', real: String(bd.estado) });
-    const general = await buscarItems(page, nombre, false);
+    const general = await buscarItems(page, nombre);
     const aparece = general.some((f) => f.itemId === id);
     log({ fase: F, paso: `${etiqueta}. publicado: el buscador lo muestra`, ok: aparece, esperado: 'presente', real: aparece ? 'presente' : 'ausente' });
   } catch (e) { log({ fase: F, paso: `${etiqueta}. publicar`, ok: false, error: String(e) }); }
@@ -107,7 +107,7 @@ export async function runBloque9(page: Page, _estado: EstadoSuite, reporte: Fila
 
   // Control: el buscador sí devuelve un ítem activo con los mismos parámetros.
   try {
-    const activo = await buscarItems(page, QA.insumoCarne, false);
+    const activo = await buscarItems(page, QA.insumoCarne);
     log({ fase: F, paso: `control: buscador encuentra '${QA.insumoCarne}' (activo)`, ok: activo.length > 0, esperado: 'presente', real: activo.length ? 'filas=' + activo.length : 'ausente' });
   } catch (e) { log({ fase: F, paso: 'control buscador', ok: false, error: String(e) }); }
 

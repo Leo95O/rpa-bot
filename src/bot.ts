@@ -823,6 +823,8 @@ export interface ParamCrearInsumo {
   borrador?: boolean;
   /** Presentaciones de compra además de la Base (p. ej. una con conversión manual). */
   presentacionesExtra?: InsumoPresentacion[];
+  /** true → las extra van antes de la Base en la grilla (nacen con presentacioninsumo_id menor). */
+  presentacionesExtraPrimero?: boolean;
 }
 
 export async function crearInsumo(
@@ -851,6 +853,7 @@ export async function crearInsumo(
       ...(p.borrador ? { borrador: true } : {}),
     },
     presentaciones: [
+      ...(p.presentacionesExtraPrimero ? p.presentacionesExtra || [] : []),
       {
         nombre: 'Base',
         cantidad: 1,
@@ -864,7 +867,7 @@ export async function crearInsumo(
         esEstandar: true,
         activa: true,
       },
-      ...(p.presentacionesExtra || []),
+      ...(p.presentacionesExtraPrimero ? [] : p.presentacionesExtra || []),
     ],
     inventario: [
       {

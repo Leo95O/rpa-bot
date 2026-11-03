@@ -196,12 +196,18 @@ export interface FilaBusqueda {
 }
 
 /**
- * Buscador de logística (busquedaSensitivaSegunTipos) con los parámetros del Kardex: insumos, recetas,
- * porcionables y descartables. `incluirConversionManual` es el args[21] que mandan compra, guía y OC
- * (nuevacompra.controller.js): sin él el backend oculta las presentaciones manuales. Solo devuelve ítems
- * con insumo_estado = ACTIVO, así que un borrador no aparece.
+ * Buscador de logística (busquedaSensitivaSegunTipos): insumos, recetas, porcionables y descartables.
+ * Solo devuelve ítems con insumo_estado = ACTIVO, así que un borrador no aparece.
+ *  - `agruparInsumo` (args[10]): SI = una fila por insumo (`group by i.insumo_id`, InsumoLogisticaDB:112-114),
+ *    como el buscador del Kardex; NO (por defecto) = una fila por presentación, como busquedaParaCompras.
+ *  - `incluirConversionManual` (args[21]): lo mandan compra, guía y OC (nuevacompra.controller.js:726);
+ *    sin él el backend oculta las presentaciones manuales (InsumoLogistica::debeOcultarPresentacionManual).
  */
-export async function buscarItems(page: Page, texto: string, incluirConversionManual = false): Promise<FilaBusqueda[]> {
+export async function buscarItems(
+  page: Page,
+  texto: string,
+  opts: { incluirConversionManual?: boolean; agruparInsumo?: boolean } = {},
+): Promise<FilaBusqueda[]> {
   return page.evaluate(async (args) => {
     const injector = angular.element(document.body).injector();
     const CommonCollection = injector.get('CommonCollection');
@@ -210,7 +216,7 @@ export async function buscarItems(page: Page, texto: string, incluirConversionMa
     const localId = SecurityService.getLocalId() || PARAM.NO;
     const resp = await CommonCollection.busquedaSensitivaSegunTipos(
       args.texto, PARAM.SI, PARAM.SI, PARAM.SI, PARAM.SI, PARAM.NO, PARAM.NO, PARAM.NO, PARAM.SI, PARAM.NO,
-      PARAM.SI, PARAM.SI, PARAM.SI, PARAM.NO, PARAM.NO, PARAM.SI, localId, PARAM.NO, PARAM.SI, PARAM.NO, PARAM.NO,
+      args.agrupar ? PARAM.SI : PARAM.NO, PARAM.SI, PARAM.SI, PARAM.NO, PARAM.NO, PARAM.SI, localId, PARAM.NO, PARAM.SI, PARAM.NO, PARAM.NO,
       args.incluir ? PARAM.SI : undefined,
     );
     const lista = resp && resp.data ? resp.data : [];
@@ -220,7 +226,7 @@ export async function buscarItems(page: Page, texto: string, incluirConversionMa
       presentacionId: x.item_presentacionid != null ? Number(x.item_presentacionid) : null,
       presentacion: String(x.item_presentacion || ''),
     }));
-  }, { texto, incluir: incluirConversionManual });
+  }, { texto, incluir: !!opts.incluirConversionManual, agrupar: !!opts.agruparInsumo });
 }
 
 export function calcularTotales(

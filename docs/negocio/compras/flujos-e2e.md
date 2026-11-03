@@ -91,7 +91,7 @@ Datos: Arroz 100kg @2.00 USD, TC 3.80, flete S/76.00, afecto. Esperado: `costoUn
 
 ### F28-F34. Presentación con conversión manual (config general 197)
 Maestro: `Pollo Manual QA`, control en Unidad, presentación de compra `Kilo` (Kilogramo) con conversión manual. En una línea manual el usuario escribe lo que entra al stock (`*_cantidadmanual`, ya en Unidad): no se convierte, y el costo base es `costo × cantidad ÷ manual`. Código: `src/e2e/compras/flujosManual.ts`. Contrato: `backend/docs/agenteia/compras/conversion-manual-presentacion.md`.
-- **F28. Compra directa.** Alta del maestro (la manual queda con control/venta/estándar en 0; el buscador general la oculta y el de compras la ofrece). Compra 10 Kilo @9.50 con manual 8 → entran 8 a 95 ÷ 8 = 11.875; `detallecompra` guarda 10 y 8.
+- **F28. Compra directa.** Alta del maestro (la manual queda con control/venta/estándar en 0). Buscando por presentación (`agruparInsumo = NO`, como la compra): sin `incluirConversionManual` sale solo Base; con él, también Kilo. Caso extra: un insumo con la manual creada antes que Base debe seguir apareciendo en el buscador agrupado del Kardex (si MySQL toma la fila manual del `group by`, el filtro PHP la descarta y el insumo desaparece). Compra 10 Kilo @9.50 con manual 8 → entran 8 a 95 ÷ 8 = 11.875; `detallecompra` guarda 10 y 8.
 - **F29. NC por cantidad.** Sobre F28: sin "Manual a devolver" → rechazada; manual 9 > disponible 8 → rechazada; 2 Kilo con manual 1.5 → salen 1.5, PPP igual.
 - **F30. Compra sin cantidad manual** → rechazada, stock igual.
 - **F31. Guía manual + canje.** Guía sin manual → rechazada; guía 5 Kilo @10 con manual 6 → entran 6 a 50 ÷ 6; la compra que canjea la guía (manual 6) no vuelve a mover stock.

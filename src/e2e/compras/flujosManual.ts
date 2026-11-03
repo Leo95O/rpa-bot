@@ -123,14 +123,58 @@ async function asegurarMaestro(page: Page, ctx: ContextoCompra, estado: EstadoSu
   resultados.push({ paso: `presentación '${PRES_MANUAL}' guardada como manual`, ok: okFlags, esperado: 'manual=1; control=0; venta=0; estandar=0', real: flags, error: okFlags ? undefined : 'La presentación no quedó como conversión manual.' });
   if (!pres) return null;
 
-  // Fuera de compra/guía/OC la presentación manual no se ofrece (convertiría con ella).
-  const sinFlag = await buscarItems(page, INSUMO, false);
-  const conFlag = await buscarItems(page, INSUMO, true);
+  // Fuera de compra/guía/OC la presentación manual no se ofrece (convertiría con ella). Se busca una
+  // fila por presentación (agruparInsumo = NO), como busquedaParaCompras: agrupado solo sale una fila.
+  const sinFlag = await buscarItems(page, INSUMO);
+  const conFlag = await buscarItems(page, INSUMO, { incluirConversionManual: true });
   const ve = (filas: typeof sinFlag): boolean => filas.some((f) => f.presentacionId === Number(pres.id));
-  resultados.push({ paso: 'buscador general oculta la presentación manual', ok: !ve(sinFlag), esperado: `sin '${PRES_MANUAL}'`, real: sinFlag.map((f) => f.presentacion).join(', ') || 'sin filas' });
-  resultados.push({ paso: 'buscador de compras (incluirConversionManual) la ofrece', ok: ve(conFlag), esperado: `con '${PRES_MANUAL}'`, real: conFlag.map((f) => f.presentacion).join(', ') || 'sin filas' });
+  const nombres = (filas: typeof sinFlag): string => filas.map((f) => f.presentacion).join(', ') || 'sin filas';
+  resultados.push({ paso: 'buscador sin incluirConversionManual oculta la presentación manual', ok: sinFlag.length > 0 && !ve(sinFlag), esperado: `Base, sin '${PRES_MANUAL}'`, real: nombres(sinFlag) });
+  resultados.push({ paso: 'buscador de compras (incluirConversionManual) la ofrece', ok: ve(conFlag), esperado: `con '${PRES_MANUAL}'`, real: nombres(conFlag) });
+
+  resultados.push(...await casoKardexAgrupadoManualPrimero(page));
 
   return { insumoId: r.id, presManualId: Number(pres.id), divisor };
+}
+
+/**
+ * El buscador del Kardex agrupa por insumo (`group by i.insumo_id`) y MySQL devuelve una fila cualquiera
+ * del grupo; luego el PHP descarta las filas de presentación manual (InsumoLogistica.php:1909). Si la fila
+ * elegida es la manual, el insumo entero desaparece del Kardex. Se fuerza ese caso creando la manual
+ * ANTES que la Base (nace con id menor, que suele ser la fila que MySQL toma).
+ */
+async function casoKardexAgrupadoManualPrimero(page: Page): Promise<Veredicto[]> {
+  const resultados: Veredicto[] = [];
+  const nombre = 'Pollo Manual Primero QA ' + Date.now().toString(36).slice(-5).toUpperCase();
+  const r = await crearInsumo(page, {
+    nombre, unidadMedida: 'Unidad', stockApertura: 0, costoApertura: 0, presentacionesExtraPrimero: true,
+    presentacionesExtra: [{
+      nombre: PRES_MANUAL, cantidad: 1, unidadMedida: 'Kilogramo', costo: 0, precioMinimo: 0, precioMaximo: 0,
+      unidadControl: false, seVende: false, precioVenta: 0, esEstandar: false, activa: true, conversionManual: true,
+    }],
+  });
+  resultados.push({ paso: `crearInsumo('${nombre}') con '${PRES_MANUAL}' antes que Base`, ok: r.ok, esperado: 'creado', real: r.id !== undefined ? 'id=' + r.id : undefined, error: r.error });
+  if (!r.ok || r.id === undefined) return resultados;
+
+  const pres = await leerPresentaciones(r.id);
+  const manual = pres.find((p) => p.nombre === PRES_MANUAL);
+  const base = pres.find((p) => p.nombre === 'Base');
+  const orden = pres.map((p) => `${p.nombre}=${p.id}`).join(', ');
+  const manualPrimero = !!manual && !!base && Number(manual.id) < Number(base.id);
+  resultados.push({ paso: 'precondición: la manual nace con id menor que Base', ok: manualPrimero, esperado: `${PRES_MANUAL} < Base`, real: orden || 'sin presentaciones' });
+
+  const kardex = await buscarItems(page, nombre, { agruparInsumo: true });
+  const aparece = kardex.some((f) => f.itemId === r.id);
+  resultados.push({
+    paso: 'buscador del Kardex (agrupado) encuentra el insumo con manual primero', ok: aparece, esperado: 'presente',
+    real: aparece ? 'presente: ' + kardex.map((f) => f.presentacion || '(sin presentación)').join(', ') : 'ausente (el filtro PHP descartó la única fila del grupo)',
+    error: aparece ? undefined : 'Defecto backend: el insumo desaparece del Kardex cuando la fila agrupada es la presentación manual.',
+  });
+
+  const general = await buscarItems(page, nombre);
+  const soloBase = general.length > 0 && general.every((f) => f.presentacionId !== Number(manual?.id));
+  resultados.push({ paso: 'buscador por presentación muestra Base y oculta la manual', ok: soloBase, esperado: `Base, sin '${PRES_MANUAL}'`, real: general.map((f) => f.presentacion).join(', ') || 'sin filas' });
+  return resultados;
 }
 
 function lineaManual(m: CtxManual, ctx: ContextoCompra, cantidad: number, costo: number, cantidadManual?: number): LineaDetalle {
