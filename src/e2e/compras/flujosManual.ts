@@ -700,7 +700,23 @@ export const flujoF39: FlujoFn = async (page, ctx, estado) => {
   const previo = await leerPrevio(page, INSUMO);
   const nc = await registrarNotaCredito(page, compra.id!, [], { descuentoGeneral: 8 });
   resultados.push({ paso: 'F39.nc descuento general (S/ 8)', ok: nc.ok, esperado: 'creada', real: nc.id !== undefined ? `id=${nc.id}` : undefined, error: nc.error,
-    descripcion: 'NC por descuento general de S/ 8 sobre el total de la compra, sin devolver mercadería. No pide "Manual a devolver".' });
+    descripcion: 'NC por descuento general de S/ 8 sobre el total de la compra, sin devolver mercadería. No pide "Manual a devolver". ' +
+      'El modal la envía con esPorDescuentoGeneral = 1, esPorDescuentoEnItems = 0 y líneas sin cantidad; el backend no lee esPorDescuentoGeneral ' +
+      'y valida como NC por cantidad (NotacreditocompraLogisticaValidator::_validarDetalles), así que la rechaza con "tiene cantidad 0".' });
+
+  // Control: la misma NC sobre una compra normal (presentación Base). Si también se rechaza, el defecto
+  // no es de la conversión manual sino de la NC por descuento general en cualquier compra.
+  if (m.presBaseId !== null) {
+    const normal = await compraHelper(page, ctx, [{ itemTipo: 1, itemId: m.insumoId, presentacionId: m.presBaseId, cantidad: 2, costo: 10, almacenId: ctx.almacenId, afecto: true, descripcion: INSUMO }]);
+    if (normal.ok) {
+      estado.compras.set('F39-normal', normal.id!);
+      const ncNormal = await registrarNotaCredito(page, normal.id!, [], { descuentoGeneral: 4 });
+      resultados.push({ paso: 'F39.control nc descuento general en compra normal (S/ 4)', ok: ncNormal.ok, esperado: 'creada', real: ncNormal.id !== undefined ? `id=${ncNormal.id}` : undefined, error: ncNormal.error,
+        descripcion: 'Control: la misma NC por descuento general sobre una compra sin conversión manual. Si también falla, el defecto afecta a toda NC por descuento general, no solo a las líneas manuales.' });
+    } else {
+      resultados.push({ paso: 'F39.control compra normal', ok: false, esperado: 'creada', error: normal.error });
+    }
+  }
   if (!nc.ok) return resultados;
   estado.nc.set('F39', nc.id!);
   const real = await leerPrevio(page, INSUMO);

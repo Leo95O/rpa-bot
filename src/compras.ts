@@ -2,6 +2,7 @@ import { Page } from 'playwright';
 import { CompraAgrupada, CamposExtraCompra } from './types';
 
 declare const angular: any;
+declare const moment: any;
 import {
   registrarCompra as registrarCompraCore,
   navegar,
@@ -680,7 +681,10 @@ export async function registrarNotaCredito(
         const payload = {
           local_id: compra.local_id,
           compra_id: args.compraId,
-          notacreditocompra_fecha: compra.compra_fecha,
+          // Como el modal (fechaDeNotacredito = moment()): la NC se registra AHORA. Fecharla con la hora de la
+          // compra metía sus salidas en el pasado del Kardex, recalculando saldos y PPP de entradas posteriores y
+          // empatando en el mismo segundo con los clones "+1 second" de las NC por precio (F37, F38, F40).
+          notacreditocompra_fecha: moment().format('YYYY-MM-DD HH:mm:ss'),
           notacreditocompra_total: args.porPrecio || args.descuentoGeneral ? totalDescuento : 0,
           notacreditocompra_tipodoc: compra.compra_tipodoc,
           notacreditocompra_numdoc: 'NC-E2E',
