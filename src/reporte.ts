@@ -286,6 +286,7 @@ function describirFlujoCompras(p: string, r: FilaReporte): string | null {
 
 /** Explicación clara y específica del paso, con sus valores y su resultado. */
 export function describirPaso(r: FilaReporte): string {
+  if (r.descripcion) return r.descripcion;
   const p = r.paso;
   const esp = stockCosto(r.esperado);
   const real = stockCosto(r.real);

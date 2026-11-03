@@ -98,19 +98,19 @@ async function main(): Promise<void> {
     igv,
   };
 
-  // Flujos de compras F1-F26 (los no implementados se reportan como PENDIENTES) y F28-F34
+  // Flujos de compras F1-F26 (los no implementados se reportan como PENDIENTES) y F28-F41
   // (presentación con conversión manual, flujosManual.ts).
-  console.log('\n== Módulo: Compras (F1-F34) ==');
+  console.log('\n== Módulo: Compras (F1-F41) ==');
   const flujosCompras = [
     'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', 'F13',
     'F14', 'F15', 'F16', 'F17', 'F18', 'F19', 'F20', 'F21', 'F22', 'F23', 'F24', 'F25', 'F26',
-    'F28', 'F29', 'F30', 'F31', 'F32', 'F33', 'F34',
+    'F28', 'F29', 'F30', 'F31', 'F32', 'F33', 'F34', 'F35', 'F36', 'F37', 'F38', 'F39', 'F40', 'F41',
   ];
   for (const fid of flujosCompras) {
     console.log(`\n--- Flujo ${fid} ---`);
     const r = await ejecutarFlujo(ctx.page, ctxCompras, ctxCompras.estado, fid);
     for (const v of r.veredictos) {
-      const fila: FilaReporte = { fase: `Compras.${fid}`, paso: v.paso, ok: v.ok, pendiente: v.pendiente, esperado: v.esperado, real: v.real, error: v.error };
+      const fila: FilaReporte = { fase: `Compras.${fid}`, paso: v.paso, ok: v.ok, pendiente: v.pendiente, esperado: v.esperado, real: v.real, error: v.error, descripcion: v.descripcion };
       ctx.reporte.push(fila);
       console.log(`${v.ok ? '[OK]' : '[FALLO]'} ${v.paso} | esperado=${v.esperado}${v.real ? ` | real=${v.real}` : ''}${v.error ? ` | ${v.error}` : ''}`);
     }

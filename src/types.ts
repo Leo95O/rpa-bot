@@ -129,4 +129,6 @@ export interface FilaReporte {
   esperado?: string;
   real?: string;
   error?: string;
+  /** Explicación de negocio del paso para la columna Descripción del HTML/PDF (manda sobre la genérica de reporte.ts). */
+  descripcion?: string;
 }

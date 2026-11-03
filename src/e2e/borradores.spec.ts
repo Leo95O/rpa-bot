@@ -61,10 +61,12 @@ async function publicar(page: Page, insumoId: number): Promise<{ ok: boolean; er
 
 /** Crea un ítem en borrador, comprueba que no se encuentra, lo publica y comprueba que sí. */
 async function cicloBorrador(page: Page, log: (f: FilaReporte) => void, etiqueta: string, nombre: string, descartable: boolean): Promise<void> {
+  const tipo = descartable ? 'un descartable' : 'un insumo';
   let id: number | undefined;
   try {
     const r = await crearInsumo(page, { nombre, stockApertura: 5, costoApertura: 10, descartable, borrador: true });
-    log({ fase: F, paso: `${etiqueta}. guardar como borrador '${nombre}' (apertura 5 @10)`, ok: r.ok, real: r.id !== undefined ? 'id=' + r.id : undefined, error: r.error });
+    log({ fase: F, paso: `${etiqueta}. guardar como borrador '${nombre}' (apertura 5 @10)`, ok: r.ok, real: r.id !== undefined ? 'id=' + r.id : undefined, error: r.error,
+      descripcion: `Se registra ${tipo} con el botón «Guardar como borrador» (con 5 unidades de apertura a S/ 10): queda guardado pero no debe poder usarse hasta publicarlo.` });
     if (!r.ok || r.id === undefined) return;
     id = r.id;
   } catch (e) {
@@ -74,28 +76,39 @@ async function cicloBorrador(page: Page, log: (f: FilaReporte) => void, etiqueta
 
   try {
     const bd = await leerEstadoYApertura(id);
-    log({ fase: F, paso: `${etiqueta}. insumo_estado = 2 (borrador)`, ok: bd.estado === '2', esperado: '2', real: String(bd.estado) });
-    log({ fase: F, paso: `${etiqueta}. borrador genera apertura en Kardex`, ok: bd.movimientos > 0, esperado: 'movimientos > 0', real: 'movimientos=' + bd.movimientos });
+    log({ fase: F, paso: `${etiqueta}. insumo_estado = 2 (borrador)`, ok: bd.estado === '2', esperado: '2', real: String(bd.estado),
+      descripcion: 'En la BD el borrador queda con insumo_estado = 2 (1 = activo, 0 = anulado).' });
+    log({ fase: F, paso: `${etiqueta}. borrador genera apertura en Kardex`, ok: bd.movimientos > 0, esperado: 'movimientos > 0', real: 'movimientos=' + bd.movimientos,
+      descripcion: 'Por diseño el borrador sí genera la apertura de stock en el Kárdex; lo que debe impedirse es encontrarlo y usarlo.' });
   } catch (e) { log({ fase: F, paso: `${etiqueta}. leer BD`, ok: false, error: String(e) }); }
 
   try {
     const general = await buscarItems(page, nombre);
     const compras = await buscarItems(page, nombre, { incluirConversionManual: true });
+    const kardex = await buscarItems(page, nombre, { agruparInsumo: true });
     const enGeneral = general.some((f) => f.itemId === id);
     const enCompras = compras.some((f) => f.itemId === id);
-    log({ fase: F, paso: `${etiqueta}. buscador general (kárdex/recetas/movimientos) NO lo muestra`, ok: !enGeneral, esperado: 'ausente', real: enGeneral ? 'aparece (defecto)' : 'ausente' });
-    log({ fase: F, paso: `${etiqueta}. buscador de compras/guías/OC NO lo muestra`, ok: !enCompras, esperado: 'ausente', real: enCompras ? 'aparece (defecto)' : 'ausente' });
+    const enKardex = kardex.some((f) => f.itemId === id);
+    log({ fase: F, paso: `${etiqueta}. buscador general (kárdex/recetas/movimientos) NO lo muestra`, ok: !enGeneral, esperado: 'ausente', real: enGeneral ? 'aparece (defecto)' : 'ausente',
+      descripcion: 'El buscador de ítems (una fila por presentación) que usan recetas, movimientos, cuadres y producción no debe mostrar el borrador.' });
+    log({ fase: F, paso: `${etiqueta}. buscador del Kárdex (agrupado) NO lo muestra`, ok: !enKardex, esperado: 'ausente', real: enKardex ? 'aparece (defecto)' : 'ausente',
+      descripcion: 'El buscador agrupado por insumo (Kárdex individual, ingredientes de receta, filtros de reportes) tampoco debe mostrar el borrador.' });
+    log({ fase: F, paso: `${etiqueta}. buscador de compras/guías/OC NO lo muestra`, ok: !enCompras, esperado: 'ausente', real: enCompras ? 'aparece (defecto)' : 'ausente',
+      descripcion: 'El buscador de compras, guías y órdenes de compra no debe ofrecer el borrador: no se puede comprar algo que no está publicado.' });
   } catch (e) { log({ fase: F, paso: `${etiqueta}. buscadores`, ok: false, error: String(e) }); }
 
   try {
     const p = await publicar(page, id);
-    log({ fase: F, paso: `${etiqueta}. publicar (activar)`, ok: p.ok, error: p.error });
+    log({ fase: F, paso: `${etiqueta}. publicar (activar)`, ok: p.ok, error: p.error,
+      descripcion: 'Se publica el borrador desde el menú «Publicar insumo» de la lista (GET insumo/activar).' });
     if (!p.ok) return;
     const bd = await leerEstadoYApertura(id);
-    log({ fase: F, paso: `${etiqueta}. publicado: insumo_estado = 1`, ok: bd.estado === '1', esperado: '1', real: String(bd.estado) });
+    log({ fase: F, paso: `${etiqueta}. publicado: insumo_estado = 1`, ok: bd.estado === '1', esperado: '1', real: String(bd.estado),
+      descripcion: 'Publicado, el ítem pasa a insumo_estado = 1 (activo).' });
     const general = await buscarItems(page, nombre);
     const aparece = general.some((f) => f.itemId === id);
-    log({ fase: F, paso: `${etiqueta}. publicado: el buscador lo muestra`, ok: aparece, esperado: 'presente', real: aparece ? 'presente' : 'ausente' });
+    log({ fase: F, paso: `${etiqueta}. publicado: el buscador lo muestra`, ok: aparece, esperado: 'presente', real: aparece ? 'presente' : 'ausente',
+      descripcion: 'Ya publicado, el buscador debe mostrarlo como cualquier ítem activo.' });
   } catch (e) { log({ fase: F, paso: `${etiqueta}. publicar`, ok: false, error: String(e) }); }
 }
 
@@ -108,7 +121,8 @@ export async function runBloque9(page: Page, _estado: EstadoSuite, reporte: Fila
   // Control: el buscador sí devuelve un ítem activo con los mismos parámetros.
   try {
     const activo = await buscarItems(page, QA.insumoCarne);
-    log({ fase: F, paso: `control: buscador encuentra '${QA.insumoCarne}' (activo)`, ok: activo.length > 0, esperado: 'presente', real: activo.length ? 'filas=' + activo.length : 'ausente' });
+    log({ fase: F, paso: `control: buscador encuentra '${QA.insumoCarne}' (activo)`, ok: activo.length > 0, esperado: 'presente', real: activo.length ? 'filas=' + activo.length : 'ausente',
+      descripcion: 'Control del bloque: con los mismos parámetros el buscador sí encuentra un insumo activo, así que una ausencia del borrador no se debe a la búsqueda.' });
   } catch (e) { log({ fase: F, paso: 'control buscador', ok: false, error: String(e) }); }
 
   await cicloBorrador(page, log, '46', 'Insumo Borrador QA ' + sufijo, false);

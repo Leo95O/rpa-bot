@@ -98,6 +98,17 @@ Maestro: `Pollo Manual QA`, control en Unidad, presentación de compra `Kilo` (K
 - **F32. OC → compra.** OC 4 Kilo @12 (la OC no guarda manual); compra que la canjea con manual 5 → entran 5 a 9.60.
 - **F33. NC por precio.** S/ 2 por Kilo sobre F32 → el clon de la entrada queda en (48 − 2×4) ÷ 5 = 8.00; stock igual.
 - **F34. Anular compra manual.** Compra 3 Kilo @10 con manual 2 → +2; anular devolviendo stock → vuelve al estado previo.
+- **F35. NC parciales acumuladas.** Compra 6 Kilo @10 con manual 5 (base 12). NC-a manual 2 → ok; NC-b manual 4 > disponible 3 → rechazada; NC-c manual 3 (tope) → ok.
+- **F36. Anular NC por cantidad.** Anular NC-c → vuelven 3; una NC nueva vuelve a sacar 3 (lo anulado deja de contar en el disponible).
+- **F37. NC por precio tras devoluciones.** S/ 1 por Kilo sobre F35 → clon (60 − 6) ÷ 5 = 10.80; la entrada sigue siendo de 5.
+- **F38. Anular NC por precio.** La entrada debe volver al costo base manual 60 ÷ 5 = 12.00. El backend re-clona con `item_precio` (10 por Kilo, `NotacreditocompraLogistica.php:640-650`): si sale 10, es defecto.
+- **F39. NC por descuento general** (S/ 8 repartido en las líneas) sobre una compra manual: no pide manual y el stock no se mueve; se informa el costo (hoy el backend la registra como tipo cantidad con cantidad 0 y no rebaja el costo).
+- **F40. NC sobre compra que canjeó guía** (F31): 1 Kilo con manual 1 → sale 1.
+- **F41. Compra mixta** (Base 4 @10 + Kilo 2 @10 manual 3): NC de las dos líneas sin manual en la manual → rechazada; con manual 1 → salen 2 (1 por línea).
+
+No cubierto: NC originada en una NC de venta (único caso de UI con `retornostock = NO`; requiere una venta), devolución en otra presentación y NC con la config 197 apagada.
+
+Cada paso de F28-F41 y del Bloque 9 lleva su `descripcion` (FilaReporte/Veredicto), que el HTML y el PDF muestran en la columna Descripción en lugar del texto genérico de `reporte.ts`.
 
 ### Bloque 9. Borradores (`src/e2e/borradores.spec.ts`)
 Insumo y descartable con «Guardar como borrador» (`insumo_estado = 2`, apertura 5 @10): queda en 2, genera apertura en el Kardex, no aparece en el buscador general ni en el de compras; al publicar (`insumo/activar`) pasa a 1 y el buscador lo muestra. Control: un ítem activo sí aparece con los mismos parámetros.

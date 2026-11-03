@@ -209,6 +209,7 @@ async function main(): Promise<void> {
         esperado: v.esperado,
         real: v.real,
         error: v.error,
+        descripcion: v.descripcion,
       });
     }
   }
