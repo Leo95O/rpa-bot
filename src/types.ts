@@ -13,6 +13,8 @@ export interface InsumoCabecera {
   mermaCompra: number;
   permiteConversion: boolean;
   impuestos: string[];
+  /** true → «Guardar como borrador»: insumo_estado = 2 (no aparece en búsquedas hasta publicarlo). */
+  borrador?: boolean;
 }
 
 export interface InsumoPresentacion {
@@ -27,6 +29,11 @@ export interface InsumoPresentacion {
   precioVenta: number;
   esEstandar: boolean;
   activa: boolean;
+  /**
+   * Conversión manual (config 197): en cada compra/guía el usuario escribe lo que entra al stock;
+   * presentacioninsumo_cantidad no convierte. El backend la fuerza a no-control, no-venta, no-estándar.
+   */
+  conversionManual?: boolean;
 }
 
 export interface InsumoInventario {

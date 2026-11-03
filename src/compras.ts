@@ -443,6 +443,11 @@ export interface DevolucionNC {
   cantidad: number;
   /** Descuento UNITARIO: solo para la rama PRECIO (rebaja). */
   descuentoUnitario?: number;
+  /**
+   * Línea con conversión manual: lo que sale del stock, en la unidad de control ("Manual a devolver").
+   * El backend no lo deduce de `cantidad` (NotacreditocompraLogistica:451-457).
+   */
+  cantidadManual?: number;
 }
 
 export async function registrarNotaCredito(
@@ -618,6 +623,8 @@ export async function registrarNotaCredito(
               almacen_id: item.almacen_id,
               item_total: item.item_total,
               productoDescontar: d.cantidad > 0 ? PARAM.SI : PARAM.NO,
+              // modalRegistroNotaCreditoCtrl solo la manda en líneas manuales que devuelven stock.
+              ...(d.cantidadManual !== undefined && d.cantidad > 0 ? { detallenotacreditocompra_cantidadmanual: d.cantidadManual } : {}),
             });
           }
         }

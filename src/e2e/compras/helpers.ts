@@ -187,6 +187,42 @@ export async function resolverPresentacion(
   }
 }
 
+/** Fila del buscador de ítems: una por presentación (InsumoLogistica.php:1908-1918). */
+export interface FilaBusqueda {
+  itemId: number;
+  descripcion: string;
+  presentacionId: number | null;
+  presentacion: string;
+}
+
+/**
+ * Buscador de logística (busquedaSensitivaSegunTipos) con los parámetros del Kardex: insumos, recetas,
+ * porcionables y descartables. `incluirConversionManual` es el args[21] que mandan compra, guía y OC
+ * (nuevacompra.controller.js): sin él el backend oculta las presentaciones manuales. Solo devuelve ítems
+ * con insumo_estado = ACTIVO, así que un borrador no aparece.
+ */
+export async function buscarItems(page: Page, texto: string, incluirConversionManual = false): Promise<FilaBusqueda[]> {
+  return page.evaluate(async (args) => {
+    const injector = angular.element(document.body).injector();
+    const CommonCollection = injector.get('CommonCollection');
+    const PARAM = injector.get('PARAM');
+    const SecurityService = injector.get('SecurityService');
+    const localId = SecurityService.getLocalId() || PARAM.NO;
+    const resp = await CommonCollection.busquedaSensitivaSegunTipos(
+      args.texto, PARAM.SI, PARAM.SI, PARAM.SI, PARAM.SI, PARAM.NO, PARAM.NO, PARAM.NO, PARAM.SI, PARAM.NO,
+      PARAM.SI, PARAM.SI, PARAM.SI, PARAM.NO, PARAM.NO, PARAM.SI, localId, PARAM.NO, PARAM.SI, PARAM.NO, PARAM.NO,
+      args.incluir ? PARAM.SI : undefined,
+    );
+    const lista = resp && resp.data ? resp.data : [];
+    return lista.map((x: any) => ({
+      itemId: Number(x.item_id),
+      descripcion: String(x.item_descripcion || ''),
+      presentacionId: x.item_presentacionid != null ? Number(x.item_presentacionid) : null,
+      presentacion: String(x.item_presentacion || ''),
+    }));
+  }, { texto, incluir: incluirConversionManual });
+}
+
 export function calcularTotales(
   lineas: Array<{ cantidad: number; costo: number; afecto: boolean; descuento?: number }>,
   igvPct: number,

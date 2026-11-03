@@ -1,5 +1,5 @@
 import { chromium, Browser, Page, Response } from 'playwright';
-import { InsumoAgrupado, CompraAgrupada, ResultadoOperacion } from './types';
+import { InsumoAgrupado, InsumoPresentacion, CompraAgrupada, ResultadoOperacion } from './types';
 import { buscarInsumo } from './kardex';
 import { refAlmacen } from './almacenes';
 
@@ -79,6 +79,7 @@ export async function ejecutarCompras(page: Page, compras: CompraAgrupada[]): Pr
 }
 
 const STATE_CONSUMIBLE_NUEVO = 'logistica.insumos.consumible.nuevo';
+const STATE_DESCARTABLE_NUEVO = 'logistica.insumos.descartable.nuevo';
 
 export async function registrarInsumo(page: Page, insumo: InsumoAgrupado, estado?: string): Promise<ResultadoOperacion> {
   await navegar(page, estado || STATE_INSUMO_NUEVO);
@@ -159,6 +160,7 @@ export async function registrarInsumo(page: Page, insumo: InsumoAgrupado, estado
           esEstandar: p.esEstandar,
           buscar: p.activa,
           presentacioninsumo_unidadmedida: p.unidadMedida,
+          ...(p.conversionManual ? { presentacioninsumo_conversionmanual: true } : {}),
         };
       });
       presentaciones.push({});
@@ -256,7 +258,9 @@ export async function registrarInsumo(page: Page, insumo: InsumoAgrupado, estado
         }));
         InsumoSvc.registrarReceta(vm.insumo);
       } else {
-        vm.registrarInsumo();
+        // registrarInsumo(comoBorrador): el botón «Guardar como borrador» lo llama con true
+        // tras confirmar la alerta (insumo_estado = 2); el guardado normal, sin argumento.
+        vm.registrarInsumo(!!cab.borrador);
       }
       return { ok: true, presentaciones: presentaciones.length - 1 };
     } catch (e) {
@@ -813,6 +817,12 @@ export interface ParamCrearInsumo {
   margenGanancia?: number;
   /** true → estado logistica.insumos.consumible.nuevo + insumo_consumible='1' */
   consumible?: boolean;
+  /** true → estado logistica.insumos.descartable.nuevo (el controller pone insumo_descartable='1'). */
+  descartable?: boolean;
+  /** true → «Guardar como borrador» (insumo_estado = 2). */
+  borrador?: boolean;
+  /** Presentaciones de compra además de la Base (p. ej. una con conversión manual). */
+  presentacionesExtra?: InsumoPresentacion[];
 }
 
 export async function crearInsumo(
@@ -838,6 +848,7 @@ export async function crearInsumo(
       permiteConversion: !!p.equivalencia,
       impuestos: [],
       ...(p.consumible ? { consumible: true } : {}),
+      ...(p.borrador ? { borrador: true } : {}),
     },
     presentaciones: [
       {
@@ -853,6 +864,7 @@ export async function crearInsumo(
         esEstandar: true,
         activa: true,
       },
+      ...(p.presentacionesExtra || []),
     ],
     inventario: [
       {
@@ -875,7 +887,8 @@ export async function crearInsumo(
     equivalencia: p.equivalencia,
   };
 
-  const r = await registrarInsumo(page, insumo, p.consumible ? STATE_CONSUMIBLE_NUEVO : undefined);
+  const estadoAlta = p.consumible ? STATE_CONSUMIBLE_NUEVO : p.descartable ? STATE_DESCARTABLE_NUEVO : undefined;
+  const r = await registrarInsumo(page, insumo, estadoAlta);
   await cerrarModales(page);
   if (r.ok) return { ok: true, id: r.idGenerado };
   return { ok: false, error: r.error };

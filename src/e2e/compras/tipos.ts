@@ -70,6 +70,11 @@ export interface LineaDetalle {
   afecto: boolean;
   descripcion?: string;
   descuento?: number;
+  /**
+   * Presentación con conversión manual: lo que entra al stock en la unidad de control
+   * (detallecompra_cantidadmanual). `cantidad` sigue siendo lo comprado.
+   */
+  cantidadManual?: number;
 }
 
 export interface TotalesCompra {

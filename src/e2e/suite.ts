@@ -12,6 +12,7 @@ import { runBloque5 } from './mrp.spec';
 import { runBloque6 } from './canjes.spec';
 import { runBloque7 } from './contraste.spec';
 import { runBloque8 } from './ediciones.spec';
+import { runBloque9 } from './borradores.spec';
 import { abrirStandalone } from './harness';
 import { generarHtmlReporte, generarPdfReporte, resumirReporte } from '../reporte';
 import { FilaReporte } from '../types';
@@ -64,6 +65,8 @@ async function main(): Promise<void> {
   await runBloque7(ctx.page, ctx.estado, ctx.reporte);
   console.log('\n== Módulo: Bloque 8 (Ediciones) ==');
   await runBloque8(ctx.page, ctx.estado, ctx.reporte);
+  console.log('\n== Módulo: Bloque 9 (Borradores) ==');
+  await runBloque9(ctx.page, ctx.estado, ctx.reporte);
 
   // Maestros definitivos: se releen DESPUÉS de los Bloques porque 'Carne QA'
   // nace con el id que le asigne el ERP en esta corrida.
@@ -95,11 +98,13 @@ async function main(): Promise<void> {
     igv,
   };
 
-  // Flujos de compras F1-F26 (los no implementados se reportan como PENDIENTES).
-  console.log('\n== Módulo: Compras (F1-F26) ==');
+  // Flujos de compras F1-F26 (los no implementados se reportan como PENDIENTES) y F28-F34
+  // (presentación con conversión manual, flujosManual.ts).
+  console.log('\n== Módulo: Compras (F1-F34) ==');
   const flujosCompras = [
     'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', 'F13',
     'F14', 'F15', 'F16', 'F17', 'F18', 'F19', 'F20', 'F21', 'F22', 'F23', 'F24', 'F25', 'F26',
+    'F28', 'F29', 'F30', 'F31', 'F32', 'F33', 'F34',
   ];
   for (const fid of flujosCompras) {
     console.log(`\n--- Flujo ${fid} ---`);

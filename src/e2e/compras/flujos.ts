@@ -13,7 +13,7 @@ export type FlujoFn = (page: Page, ctx: ContextoCompra, estado: EstadoSuite) => 
 /** Almacén de trabajo de los flujos de Compras (Central del local 1). */
 const ALMACEN = 'Almacen Principal';
 
-interface PrevioStock {
+export interface PrevioStock {
   stock: number;
   costo: number;
   sinImp: number;
@@ -28,7 +28,7 @@ interface PrevioStock {
  * entrada (no el PPP de una compra anterior) es lo que hace que el esperado
  * difiera del real.
  */
-function esperadoTrasEntrada(
+export function esperadoTrasEntrada(
   previo: PrevioStock,
   cantidad: number,
   costo: number,
@@ -44,7 +44,7 @@ function esperadoTrasEntrada(
 }
 
 /** Lee el estado vivo previo (stock/PPP/PPP-sin-imp) del ítem en el almacén. */
-async function leerPrevio(page: Page, nombre: string): Promise<PrevioStock> {
+export async function leerPrevio(page: Page, nombre: string): Promise<PrevioStock> {
   const r = await leerStockActual(page, nombre, ALMACEN);
   if (!r) return { stock: 0, costo: 0, sinImp: 0 };
   return r;
@@ -109,7 +109,7 @@ async function leerUltimaEntradaProducto(
   }
 }
 
-async function compraHelper(
+export async function compraHelper(
   page: Page,
   ctx: ContextoCompra,
   lineas: LineaDetalle[],
@@ -209,6 +209,7 @@ async function compraHelper(
         presentacioninsumo_id: l.itemTipo === 1 ? l.presentacionId : null,
         presentacioncompraproducto_id: l.itemTipo === 2 ? l.presentacionId : null,
         detallecompra_afectoimpuestos: l.afecto,
+        ...(l.cantidadManual !== undefined ? { detallecompra_cantidadmanual: l.cantidadManual } : {}),
         compra_id: '-1',
       })),
       cuotas: args.cuotas || [],

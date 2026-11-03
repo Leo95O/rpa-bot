@@ -22,13 +22,13 @@ interface Unidad {
 const unidades: Unidad[] = [];
 
 if (correrTodo || soloBloques) {
-  for (let i = 1; i <= 8; i++) {
-    unidades.push({ nombre: `Bloque ${i}`, cmd: 'npx', args: ['ts-node', `src/e2e/${['aprovisionamiento','consumibles','traslados','ajustes','mrp','canjes','contraste','ediciones'][i-1]}.spec.ts`] });
+  for (let i = 1; i <= 9; i++) {
+    unidades.push({ nombre: `Bloque ${i}`, cmd: 'npx', args: ['ts-node', `src/e2e/${['aprovisionamiento','consumibles','traslados','ajustes','mrp','canjes','contraste','ediciones','borradores'][i-1]}.spec.ts`] });
   }
 }
 
 if (correrTodo || soloCompras) {
-  const comprasArgs = flujos ? flujos : ['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12','F13','F14','F15','F16','F17','F18','F19','F20','F21','F22','F23','F24','F25','F26'];
+  const comprasArgs = flujos ? flujos : ['F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12','F13','F14','F15','F16','F17','F18','F19','F20','F21','F22','F23','F24','F25','F26','F28','F29','F30','F31','F32','F33','F34'];
   // Run compras suite once with all flows (it's already resilient per-flow)
   unidades.push({ nombre: 'Compras (F1-F26)', cmd: 'npx', args: ['ts-node', 'src/e2e/compras/suite.ts', ...comprasArgs] });
 }

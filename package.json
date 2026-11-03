@@ -16,6 +16,7 @@
     "test:bloque6": "ts-node src/e2e/canjes.spec.ts",
     "test:bloque7": "ts-node src/e2e/contraste.spec.ts",
     "test:bloque8": "ts-node src/e2e/ediciones.spec.ts",
+    "test:bloque9": "ts-node src/e2e/borradores.spec.ts",
     "test:suite": "ts-node src/e2e/suite.ts",
     "test:suite:all": "ts-node src/e2e/run-all.ts --all",
     "test:suite:bloques": "ts-node src/e2e/run-all.ts --bloques",

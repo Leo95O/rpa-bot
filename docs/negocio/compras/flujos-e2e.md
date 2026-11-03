@@ -89,6 +89,19 @@ Paso 1 — Compra Arroz 50kg @7.60 soles (TC 1.0). Paso 2 — Compra Arroz 50kg 
 ### F26. Flete + TC combinados
 Datos: Arroz 100kg @2.00 USD, TC 3.80, flete S/76.00, afecto. Esperado: `costoUnit=(2.00×100−0)/100=2.00 USD`, `fleteUnit=(200/200)×76/100=0.76 soles/kg`… (flete en soles sobre costo en soles: `unitSoles=7.60`, `costoFinal=7.60+0.76=8.36`), `sin=8.36/1.18=7.085`; PPP con 8.36; `importe`, `sub`, `igv` y `total=sub+igv+flete` verificados en §4.
 
+### F28-F34. Presentación con conversión manual (config general 197)
+Maestro: `Pollo Manual QA`, control en Unidad, presentación de compra `Kilo` (Kilogramo) con conversión manual. En una línea manual el usuario escribe lo que entra al stock (`*_cantidadmanual`, ya en Unidad): no se convierte, y el costo base es `costo × cantidad ÷ manual`. Código: `src/e2e/compras/flujosManual.ts`. Contrato: `backend/docs/agenteia/compras/conversion-manual-presentacion.md`.
+- **F28. Compra directa.** Alta del maestro (la manual queda con control/venta/estándar en 0; el buscador general la oculta y el de compras la ofrece). Compra 10 Kilo @9.50 con manual 8 → entran 8 a 95 ÷ 8 = 11.875; `detallecompra` guarda 10 y 8.
+- **F29. NC por cantidad.** Sobre F28: sin "Manual a devolver" → rechazada; manual 9 > disponible 8 → rechazada; 2 Kilo con manual 1.5 → salen 1.5, PPP igual.
+- **F30. Compra sin cantidad manual** → rechazada, stock igual.
+- **F31. Guía manual + canje.** Guía sin manual → rechazada; guía 5 Kilo @10 con manual 6 → entran 6 a 50 ÷ 6; la compra que canjea la guía (manual 6) no vuelve a mover stock.
+- **F32. OC → compra.** OC 4 Kilo @12 (la OC no guarda manual); compra que la canjea con manual 5 → entran 5 a 9.60.
+- **F33. NC por precio.** S/ 2 por Kilo sobre F32 → el clon de la entrada queda en (48 − 2×4) ÷ 5 = 8.00; stock igual.
+- **F34. Anular compra manual.** Compra 3 Kilo @10 con manual 2 → +2; anular devolviendo stock → vuelve al estado previo.
+
+### Bloque 9. Borradores (`src/e2e/borradores.spec.ts`)
+Insumo y descartable con «Guardar como borrador» (`insumo_estado = 2`, apertura 5 @10): queda en 2, genera apertura en el Kardex, no aparece en el buscador general ni en el de compras; al publicar (`insumo/activar`) pasa a 1 y el buscador lo muestra. Control: un ítem activo sí aparece con los mismos parámetros.
+
 ## 4. Matriz de totales (subtotal, impuestos, total, cantidades) — verificación obligatoria por compra
 
 Fórmulas (fijo, afecto 18 %; dinámico delega por línea pero cierra igual):
