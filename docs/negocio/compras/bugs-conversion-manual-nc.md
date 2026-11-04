@@ -44,6 +44,23 @@ y la directiva de grilla (`handsontable.js:2049`).
 * El modal envía `esPorDescuentoGeneral = 1`, `esPorDescuentoEnItems = 0` y líneas con cantidad 0 y `productoDescontar = SI` (`modalRegistroNotaCreditoCtrl.js:695-697`).
 * Ningún código del backend (`logistica/`, `smart/`, `api/`) lee `esPorDescuentoGeneral`.
 * `NotacreditocompraLogisticaValidator::_validarDetalles` (`:83-87`) la valida como NC por cantidad y la rechaza: "… tiene cantidad 0, por favor verificar. No hay detalles modificados".
-* F39 incluye un control sobre una compra sin conversión manual para confirmar si afecta a toda compra.
+* **Confirmado 2026-11-04:** el control de F39 sobre una compra sin conversión manual se rechaza con el mismo mensaje.
+  No es de la conversión manual: afecta a toda NC por descuento general.
 
-**Impacto:** la opción de descuento general del modal no registra la NC.
+**Impacto:** la opción «Es por descuento general» del modal no registra la NC en ninguna compra.
+
+---
+
+## BUG-CM4 (riesgo bajo) — Empates de segundo con los clones de la NC por precio descuadran el stock leído
+
+**Flujo:** compra → NC por precio (clona la entrada con fecha `original + 1 second`) → cualquier otro movimiento
+del mismo insumo y almacén en ESE segundo (otra NC, una venta que descuenta, etc.).
+
+* Corrida 2026-11-04 (insumo 1825): compra 10:56:23, NC por cantidad 10:56:24, clon de la NC por precio también 10:56:24.
+* Con el clon vivo, el stock que devuelve `obtenerStockYCosto` fue 15.5 en lugar de 17.5 (resta dos veces la salida
+  del mismo segundo). Al anular la NC, la entrada restaurada quedó en :25 sin empate y el stock volvió a 17.5.
+* La cadena de `saldoactual` grabada es correcta; el descuadre está en cómo se lee el último estado cuando hay
+  movimientos con la misma fecha (mismo origen que el `<` estricto de `MovimientoalmaceninsumoV2DB.php:109`).
+
+**Impacto:** poco probable con uso normal, pero posible en insumos con mucho movimiento (ventas descontando en el
+segundo exacto del clon). El bot lo evita esperando 5 s desde la compra antes de registrar NC (`registrarNotaCredito`).

@@ -494,6 +494,13 @@ export async function registrarNotaCredito(
         const compra = respCompra.data.compra;
         const productos = respCompra.data.productos || [];
 
+        // Una NC por precio clona la entrada "+1 second" respecto de la compra y anularla re-clona "+2".
+        // Si la NC cae en ese mismo segundo, el stock leído descuadra (BUG-CM4). Un usuario no registra la NC
+        // segundos después de la compra: se espera a que pasen 5 s desde compra_fecha.
+        const listo = moment(compra.compra_fecha, 'YYYY-MM-DD HH:mm:ss').add(5, 'seconds');
+        const espera = listo.diff(moment());
+        if (espera > 0) await new Promise((res) => setTimeout(res, espera));
+
         // Espejo de utils/deepFind.ts (ver comentario en modificarCompra).
         function idEnNodo(nodo: any, objetivo: number, prof: number, vistos: any[]): boolean {
           if (nodo === null || nodo === undefined) return false;
