@@ -684,48 +684,15 @@ export const flujoF38: FlujoFn = async (page, ctx, estado) => {
   return resultados;
 };
 
-// F39: NC por DESCUENTO GENERAL (monto total repartido en las líneas) sobre una compra manual.
-// No devuelve mercadería: el stock no debe moverse.
-export const flujoF39: FlujoFn = async (page, ctx, estado) => {
-  const resultados: Veredicto[] = [];
-  const m = await ctxManual(ctx, estado);
-  if (!m) return sinMaestro('F39');
-
-  const compra = await compraHelper(page, ctx, [lineaManual(m, ctx, 4, 10, 3)]);
-  if (!compra.ok) return [{ paso: 'F39.compra(4 Kilo @10, manual 3)', ok: false, esperado: 'creada', error: compra.error }];
-  estado.compras.set('F39', compra.id!);
-  resultados.push({ paso: 'F39.compra(4 Kilo @10, manual 3)', ok: true, esperado: 'creada', real: `id=${compra.id}`,
-    descripcion: 'Compra de 4 Kilos a S/ 10 con 3 unidades de ingreso, para la NC por descuento general.' });
-
-  const previo = await leerPrevio(page, INSUMO);
-  const nc = await registrarNotaCredito(page, compra.id!, [], { descuentoGeneral: 8 });
-  resultados.push({ paso: 'F39.nc descuento general (S/ 8)', ok: nc.ok, esperado: 'creada', real: nc.id !== undefined ? `id=${nc.id}` : undefined, error: nc.error,
-    descripcion: 'NC por descuento general de S/ 8 sobre el total de la compra, sin devolver mercadería. No pide "Manual a devolver". ' +
-      'El modal la envía con esPorDescuentoGeneral = 1, esPorDescuentoEnItems = 0 y líneas sin cantidad; el backend no lee esPorDescuentoGeneral ' +
-      'y valida como NC por cantidad (NotacreditocompraLogisticaValidator::_validarDetalles), así que la rechaza con "tiene cantidad 0".' });
-
-  // Control: la misma NC sobre una compra normal (presentación Base). Si también se rechaza, el defecto
-  // no es de la conversión manual sino de la NC por descuento general en cualquier compra.
-  if (m.presBaseId !== null) {
-    const normal = await compraHelper(page, ctx, [{ itemTipo: 1, itemId: m.insumoId, presentacionId: m.presBaseId, cantidad: 2, costo: 10, almacenId: ctx.almacenId, afecto: true, descripcion: INSUMO }]);
-    if (normal.ok) {
-      estado.compras.set('F39-normal', normal.id!);
-      const ncNormal = await registrarNotaCredito(page, normal.id!, [], { descuentoGeneral: 4 });
-      resultados.push({ paso: 'F39.control nc descuento general en compra normal (S/ 4)', ok: ncNormal.ok, esperado: 'creada', real: ncNormal.id !== undefined ? `id=${ncNormal.id}` : undefined, error: ncNormal.error,
-        descripcion: 'Control: la misma NC por descuento general sobre una compra sin conversión manual. Si también falla, el defecto afecta a toda NC por descuento general, no solo a las líneas manuales.' });
-    } else {
-      resultados.push({ paso: 'F39.control compra normal', ok: false, esperado: 'creada', error: normal.error });
-    }
-  }
-  if (!nc.ok) return resultados;
-  estado.nc.set('F39', nc.id!);
-  const real = await leerPrevio(page, INSUMO);
-  resultados.push({
-    paso: 'F39.stock sin cambio', ok: Math.abs(real.stock - previo.stock) < TOL, esperado: `stock=${previo.stock}`, real: `stock=${real.stock}; costo=${real.costo} (antes ${previo.costo})`,
-    descripcion: 'Un descuento general no devuelve mercadería: el stock no debe moverse. Se informa el costo promedio antes y después: el backend registra esta NC como tipo cantidad con cantidad 0, así que hoy no rebaja el costo en el Kárdex.',
-  });
-  return resultados;
-};
+// F39: NC por DESCUENTO GENERAL. NO se ejecuta: en el modal de NC (master del frontend) el checkbox
+// «Es por descuento general» está comentado (modalRegistroNotaCredito.html:78-91), así que el usuario no
+// puede elegirlo. El backend tampoco lee esPorDescuentoGeneral (BUG-CM3, latente). Se reporta como pendiente
+// para no marcar como fallo una ruta que la UI no ofrece; registrarNotaCredito conserva la opción por si se reactiva.
+export const flujoF39: FlujoFn = async () => [{
+  paso: 'F39.nc descuento general', ok: false, pendiente: true, esperado: 'no aplica: opción oculta en la UI',
+  descripcion: 'La NC por descuento general no está disponible para el usuario: el checkbox «Es por descuento general» está comentado en ' +
+    'modalRegistroNotaCredito.html. Si se reactiva, hoy fallaría: el backend no lee esPorDescuentoGeneral y la valida como NC por cantidad (BUG-CM3).',
+}];
 
 // F40: NC por cantidad sobre la compra que canjeó la guía de F31 (la guía movió el stock, no la compra).
 export const flujoF40: FlujoFn = async (page, ctx, estado) => {

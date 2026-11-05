@@ -37,7 +37,7 @@ y la directiva de grilla (`handsontable.js:2049`).
 
 ---
 
-## BUG-CM3 (F39) — La NC por descuento general se rechaza
+## BUG-CM3 (F39) — LATENTE: la NC por descuento general se rechaza (opción oculta en la UI)
 
 **Flujo:** modal de NC → «Es por descuento general» → monto.
 
@@ -47,7 +47,10 @@ y la directiva de grilla (`handsontable.js:2049`).
 * **Confirmado 2026-11-04:** el control de F39 sobre una compra sin conversión manual se rechaza con el mismo mensaje.
   No es de la conversión manual: afecta a toda NC por descuento general.
 
-**Impacto:** la opción «Es por descuento general» del modal no registra la NC en ninguna compra.
+* **Reclasificado 2026-11-05:** en `master` del frontend el checkbox «Es por descuento general» está comentado
+  (`modalRegistroNotaCredito.html:78-91`). El usuario no llega a esta ruta; F39 queda como PENDIENTE (no ejecutado).
+
+**Impacto:** ninguno hoy para el usuario. Si se reactiva el checkbox sin corregir el backend, la NC por descuento general no se registrará en ninguna compra.
 
 ---
 
