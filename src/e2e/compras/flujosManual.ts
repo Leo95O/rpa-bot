@@ -760,7 +760,10 @@ export const flujoF41: FlujoFn = async (page, ctx, estado) => {
   resultados.push({ paso: 'F41.compra mixta (Base 4 @10 + Kilo 2 @10 manual 3)', ok: true, esperado: 'creada', real: `id=${compra.id}`,
     descripcion: 'Compra con dos líneas del mismo insumo: 4 unidades en la presentación Base (convierte 1 a 1) y 2 Kilos en la manual con 3 unidades de ingreso.' });
 
-  // Dos entradas: Base 4 @10 y manual 3 @ 20/3.
+  // Dos entradas: Base 4 @10 y manual 3 @ 20/3. El backend fecha cada línea un segundo después de la
+  // anterior (la 2.ª queda en compra_fecha + 1 s) y el stock solo cuenta movimientos con fecha < ahora
+  // (MovimientoalmaceninsumoV2DB.php:109): leer en ese segundo devolvía solo la 1.ª línea (25.5 en vez de 28.5).
+  await new Promise((res) => setTimeout(res, 2000));
   const tras1 = esperadoTrasEntrada(previo, 4, 10, m.divisor);
   const tras2 = esperadoTrasEntrada(tras1, 3, 20 / 3, m.divisor);
   resultados.push(con(await assertStock(page, INSUMO, tras2.stock, tras2.costo, tras2.sinImp, ALMACEN),
