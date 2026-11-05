@@ -470,15 +470,14 @@ export interface DevolucionNC {
 /**
  * Registra una NC de compra como modalRegistroNotaCreditoCtrl:
  *  - por cantidad (defecto): devolución, saca stock;
- *  - `porPrecio`: descuento unitario por ítem (esPorDescuentoEnItems), clona la entrada con el costo rebajado;
- *  - `descuentoGeneral`: monto total repartido en TODAS las líneas por su peso en el total
- *    (procesarNotaCreditoPorDescuento: montodescuento = item_total × monto ÷ compra_total), sin cantidades.
+ *  - `porPrecio`: descuento unitario por ítem (esPorDescuentoEnItems), clona la entrada con el costo rebajado.
+ * No hay descuento general: el checkbox está comentado en el modal (modalRegistroNotaCredito.html:78-91).
  */
 export async function registrarNotaCredito(
   page: Page,
   compraId: number,
   devoluciones: DevolucionNC[],
-  opts: { porPrecio?: boolean; descuentoGeneral?: number } = {},
+  opts: { porPrecio?: boolean } = {},
 ): Promise<ResultadoOperacionE2E> {
   const inyeccion: { ok: boolean; id?: number; error?: string; muestra?: unknown } = await page.evaluate(
     async (args) => {
@@ -594,31 +593,7 @@ export async function registrarNotaCredito(
 
         const detalle = [];
         let totalDescuento = 0;
-        if (args.descuentoGeneral) {
-          // procesarNotaCreditoPorDescuento: todas las líneas, sin cantidad, montodescuento por peso en el total.
-          const pct = Number(args.descuentoGeneral) / Number(compra.compra_total);
-          for (const item of productos) {
-            detalle.push({
-              detallenotacreditocompra_cantidad: 0,
-              detallenotacreditocompra_montodescuento: Number(item.item_total) * pct,
-              detallenotacreditocompra_precio: item.item_precio,
-              detallecompra_costo: item.item_precio,
-              detallecompra_cantidad: item.item_cantidad,
-              detallecompra_descuento: item.item_descuento || 0,
-              detallecompra_importe: item.item_total,
-              detallecompra_id: item.detallecompra_id,
-              presentacionactivo_id: null,
-              producto_id: item.item_tipo === 2 ? item.item_id : null,
-              presentacioninsumo_id: item.item_tipo !== 2 ? item.presentacion_id : null,
-              item_descripcion: item.item_descripcion,
-              almacen_id: item.almacen_id,
-              item_total: item.item_total,
-              productoDescontar: PARAM.SI,
-            });
-          }
-          totalDescuento = Number(args.descuentoGeneral);
-        }
-        for (const d of args.descuentoGeneral ? [] : args.devoluciones) {
+        for (const d of args.devoluciones) {
           const item = productos.find((x: any) => coincide(x, d));
           if (!item) {
             return {
@@ -692,11 +667,11 @@ export async function registrarNotaCredito(
           // compra metía sus salidas en el pasado del Kardex, recalculando saldos y PPP de entradas posteriores y
           // empatando en el mismo segundo con los clones "+1 second" de las NC por precio (F37, F38, F40).
           notacreditocompra_fecha: moment().format('YYYY-MM-DD HH:mm:ss'),
-          notacreditocompra_total: args.porPrecio || args.descuentoGeneral ? totalDescuento : 0,
+          notacreditocompra_total: args.porPrecio ? totalDescuento : 0,
           notacreditocompra_tipodoc: compra.compra_tipodoc,
           notacreditocompra_numdoc: 'NC-E2E',
           notacreditocompra_seriedoc: '001',
-          esPorDescuentoGeneral: args.descuentoGeneral ? PARAM.SI : PARAM.NO,
+          esPorDescuentoGeneral: PARAM.NO,
           esPorDescuentoEnItems: args.porPrecio ? PARAM.SI : PARAM.NO,
           compra_tipo: compra.compra_tipo || '1',
           detallenotacreditocompra: detalle,
@@ -709,7 +684,7 @@ export async function registrarNotaCredito(
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }
     },
-    { compraId, devoluciones, porPrecio: !!opts.porPrecio, descuentoGeneral: opts.descuentoGeneral || 0 },
+    { compraId, devoluciones, porPrecio: !!opts.porPrecio },
   );
 
   if (!inyeccion.ok) {

@@ -102,7 +102,7 @@ Maestro: `Pollo Manual QA`, control en Unidad, presentación de compra `Kilo` (K
 - **F36. Anular NC por cantidad.** Anular NC-c → vuelven 3; una NC nueva vuelve a sacar 3 (lo anulado deja de contar en el disponible).
 - **F37. NC por precio tras devoluciones.** S/ 1 por Kilo sobre F35 → clon (60 − 6) ÷ 5 = 10.80; la entrada sigue siendo de 5.
 - **F38. Anular NC por precio.** La entrada debe volver al costo base manual 60 ÷ 5 = 12.00. El backend re-clona con `item_precio` (10 por Kilo, `NotacreditocompraLogistica.php:640-650`): si sale 10, es defecto.
-- **F39. NC por descuento general:** PENDIENTE (no se ejecuta). El checkbox está comentado en el modal de `master`; el backend además no lee `esPorDescuentoGeneral` (BUG-CM3, latente).
+- **F39.** No existe: la NC por descuento general queda fuera del bot porque el modal tiene ese checkbox comentado (`modalRegistroNotaCredito.html:78-91`) y el usuario no llega a ella.
 - **F40. NC sobre compra que canjeó guía** (F31): 1 Kilo con manual 1 → sale 1.
 - **F41. Compra mixta** (Base 4 @10 + Kilo 2 @10 manual 3): NC de las dos líneas sin manual en la manual → rechazada; con manual 1 → salen 2 (1 por línea).
 

@@ -37,23 +37,6 @@ y la directiva de grilla (`handsontable.js:2049`).
 
 ---
 
-## BUG-CM3 (F39) — LATENTE: la NC por descuento general se rechaza (opción oculta en la UI)
-
-**Flujo:** modal de NC → «Es por descuento general» → monto.
-
-* El modal envía `esPorDescuentoGeneral = 1`, `esPorDescuentoEnItems = 0` y líneas con cantidad 0 y `productoDescontar = SI` (`modalRegistroNotaCreditoCtrl.js:695-697`).
-* Ningún código del backend (`logistica/`, `smart/`, `api/`) lee `esPorDescuentoGeneral`.
-* `NotacreditocompraLogisticaValidator::_validarDetalles` (`:83-87`) la valida como NC por cantidad y la rechaza: "… tiene cantidad 0, por favor verificar. No hay detalles modificados".
-* **Confirmado 2026-11-04:** el control de F39 sobre una compra sin conversión manual se rechaza con el mismo mensaje.
-  No es de la conversión manual: afecta a toda NC por descuento general.
-
-* **Reclasificado 2026-11-05:** en `master` del frontend el checkbox «Es por descuento general» está comentado
-  (`modalRegistroNotaCredito.html:78-91`). El usuario no llega a esta ruta; F39 queda como PENDIENTE (no ejecutado).
-
-**Impacto:** ninguno hoy para el usuario. Si se reactiva el checkbox sin corregir el backend, la NC por descuento general no se registrará en ninguna compra.
-
----
-
 ## BUG-CM4 (riesgo bajo) — Empates de segundo con los clones de la NC por precio descuadran el stock leído
 
 **Flujo:** compra → NC por precio (clona la entrada con fecha `original + 1 second`) → cualquier otro movimiento

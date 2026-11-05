@@ -1,4 +1,4 @@
-// flujosManual.ts — Flujos F28-F41: presentación con CONVERSIÓN MANUAL (config general 197).
+// flujosManual.ts — Flujos F28-F41 (sin F39): presentación con CONVERSIÓN MANUAL (config general 197).
 //
 // Contrato (backend docs/agenteia/compras/conversion-manual-presentacion.md):
 //  - En una línea manual el usuario escribe lo que entra al stock (detallecompra_cantidadmanual /
@@ -13,6 +13,7 @@
 //  - Anular NC por precio: se re-clona la entrada con `item_precio` (precio de la presentación), no con el
 //    costo base manual (NotacreditocompraLogistica:640-650): F38 lo verifica.
 //  - El buscador oculta la presentación manual salvo que se pida incluirConversionManual (solo compra, guía y OC).
+//  - No hay flujo de NC por descuento general: el modal tiene ese checkbox comentado y el usuario no llega a él.
 import { Page } from 'playwright';
 import { ContextoCompra, EstadoSuite, LineaDetalle, ResultadoOperacion } from './tipos';
 import { hoyMas, fechaHora, serieUnica, inyectarOrdenCompra, ppp, buscarItems } from './helpers';
@@ -684,16 +685,6 @@ export const flujoF38: FlujoFn = async (page, ctx, estado) => {
   return resultados;
 };
 
-// F39: NC por DESCUENTO GENERAL. NO se ejecuta: en el modal de NC (master del frontend) el checkbox
-// «Es por descuento general» está comentado (modalRegistroNotaCredito.html:78-91), así que el usuario no
-// puede elegirlo. El backend tampoco lee esPorDescuentoGeneral (BUG-CM3, latente). Se reporta como pendiente
-// para no marcar como fallo una ruta que la UI no ofrece; registrarNotaCredito conserva la opción por si se reactiva.
-export const flujoF39: FlujoFn = async () => [{
-  paso: 'F39.nc descuento general', ok: false, pendiente: true, esperado: 'no aplica: opción oculta en la UI',
-  descripcion: 'La NC por descuento general no está disponible para el usuario: el checkbox «Es por descuento general» está comentado en ' +
-    'modalRegistroNotaCredito.html. Si se reactiva, hoy fallaría: el backend no lee esPorDescuentoGeneral y la valida como NC por cantidad (BUG-CM3).',
-}];
-
 // F40: NC por cantidad sobre la compra que canjeó la guía de F31 (la guía movió el stock, no la compra).
 export const flujoF40: FlujoFn = async (page, ctx, estado) => {
   const resultados: Veredicto[] = [];
@@ -759,5 +750,5 @@ export const flujoF41: FlujoFn = async (page, ctx, estado) => {
 
 export const FLUJOS_MANUAL: Record<string, FlujoFn> = {
   F28: flujoF28, F29: flujoF29, F30: flujoF30, F31: flujoF31, F32: flujoF32, F33: flujoF33, F34: flujoF34,
-  F35: flujoF35, F36: flujoF36, F37: flujoF37, F38: flujoF38, F39: flujoF39, F40: flujoF40, F41: flujoF41,
+  F35: flujoF35, F36: flujoF36, F37: flujoF37, F38: flujoF38, F40: flujoF40, F41: flujoF41,
 };
