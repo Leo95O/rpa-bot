@@ -75,6 +75,8 @@ export interface LineaDetalle {
    * (detallecompra_cantidadmanual). `cantidad` sigue siendo lo comprado.
    */
   cantidadManual?: number;
+  /** Línea existente de la compra (solo al editar por API). */
+  detallecompraId?: number;
 }
 
 export interface TotalesCompra {

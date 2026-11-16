@@ -112,7 +112,7 @@ Cada flujo comprueba el comportamiento correcto; mientras el defecto exista, su 
 | Flujo | Defecto | Qué hace el bot | Correcto esperado |
 |---|---|---|---|
 | F42 | BUG-1 | Compra con caja (efectivo 100 + tarjeta 100) y edición sin cambios | Siguen 2 egresos activos |
-| F43 | BUG-2 | Dos compras «Sin comprobante» del mismo proveedor y edición de una | Ambas se registran y la edición se acepta |
+| F43 | BUG-2, BUG-2b | Dos compras «Sin comprobante» del mismo proveedor; editar una desde la pantalla y por API | Ambas se registran; la edición se acepta en los dos casos |
 | F44 | BUG-3 | Compra sin enviar compra_fechatributacion | Queda igual a compra_fecha |
 | F45 | BUG-5 | Carne QA en Principal @21 y luego en Producción @33; último precio | 21 para el Principal |
 | F46 | BUG-6 | Dos OS aprobadas; compra de servicio con A editada a B | A vuelve a aprobada con compra_id NULL |

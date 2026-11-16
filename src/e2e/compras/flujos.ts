@@ -148,6 +148,8 @@ export async function compraHelper(
     numero?: string;
     /** true = no envía compra_fechatributacion (cliente que no conoce el campo). */
     sinFechaTributacion?: boolean;
+    /** Edita esa compra por API (CompraResource.actualizarCompra) en vez de registrar una nueva. */
+    actualizarCompraId?: number;
   } = {},
 ): Promise<ResultadoOperacion> {
   const serie = opts.serie ?? serieUnica('C');
@@ -201,6 +203,7 @@ export async function compraHelper(
         compra_montoefectivo: args.montoEfectivo || 0,
         compra_montotarjeta: args.montoTarjeta || 0,
         compra_montocheque: args.montoCheque || 0,
+        ...(args.actualizarCompraId ? { compra_id: args.actualizarCompraId } : {}),
       },
       productos: args.lineas.map((l) => ({
         item_id: l.itemId,
@@ -216,13 +219,14 @@ export async function compraHelper(
         presentacioninsumo_id: l.itemTipo === 1 ? l.presentacionId : null,
         presentacioncompraproducto_id: l.itemTipo === 2 ? l.presentacionId : null,
         detallecompra_afectoimpuestos: l.afecto,
+        ...(l.detallecompraId ? { detallecompra_id: l.detallecompraId } : {}),
         ...(l.cantidadManual !== undefined ? { detallecompra_cantidadmanual: l.cantidadManual } : {}),
-        compra_id: '-1',
+        compra_id: args.actualizarCompraId ? String(args.actualizarCompraId) : '-1',
       })),
       cuotas: args.cuotas || [],
     };
     try {
-      const r = await Cr.agregar(payload);
+      const r = args.actualizarCompraId ? await Cr.actualizarCompra(payload) : await Cr.agregar(payload);
       return { ok: r.tipo === 1 || r.tipo === '1', id: r.data, error: r.mensajes?.[0] };
     } catch (e: unknown) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -239,7 +243,7 @@ export async function compraHelper(
     montoEfectivo: opts.montoEfectivo, montoTarjeta: opts.montoTarjeta, montoCheque: opts.montoCheque,
     conRetencion: opts.conRetencion, montoRetencion: opts.montoRetencion, saliodecaja: opts.saliodecaja,
     esAlCredito: opts.esAlCredito,
-    tipodoc: opts.tipodoc, sinFechaTributacion: !!opts.sinFechaTributacion,
+    tipodoc: opts.tipodoc, sinFechaTributacion: !!opts.sinFechaTributacion, actualizarCompraId: opts.actualizarCompraId,
   });
 }
 

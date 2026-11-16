@@ -51,9 +51,10 @@ export async function registrarSalidaConsumible(
           PARAM.SI, PARAM.SI, PARAM.SI, PARAM.NO, PARAM.NO, PARAM.SI, local.local_id, PARAM.NO, PARAM.SI, PARAM.NO, PARAM.NO,
         );
         const lista = (busq && busq.data) || [];
-        const item = lista.find(
-          (x: any) => String(x.item_descripcion || '').trim().toLowerCase() === String(args.nombre).trim().toLowerCase(),
-        );
+        const nombreBuscado = String(args.nombre).trim().toLowerCase();
+        // Exacto primero; los productos llegan como «Producto general - presentación».
+        const item = lista.find((x: any) => String(x.item_descripcion || '').trim().toLowerCase() === nombreBuscado)
+          || lista.find((x: any) => String(x.item_descripcion || '').trim().toLowerCase().startsWith(nombreBuscado));
         if (!item) return { ok: false, error: 'Item no encontrado para salida: ' + args.nombre };
         const respAlm = await CommonCollection.obtenerAlmacenListPorLocal(local.local_id, PARAM.ESTADO.ACTIVO, PARAM.ESTADO.INACTIVO, PARAM.ESTADO.INACTIVO).catch(() => null);
         const almacenes = (respAlm && respAlm.data) || [];

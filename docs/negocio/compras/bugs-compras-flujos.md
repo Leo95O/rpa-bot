@@ -118,6 +118,20 @@
 
 ---
 
+## BUG-2b (F43, frontend) — Una compra «Sin comprobante» no se puede editar desde la pantalla
+
+**Flujo:** abrir en edición una compra registrada como «Sin comprobante» y guardar.
+
+* `logisticaview: app/scripts/logistica/compra/editarcompra/editarcompra.controller.js:63` declara `vm.comprobanteInterno = { comprobantecompra_descripcion: "Sin comprobante", comprobantecompra_id: -1 }`, pero nunca se agrega a `vm.comprobanteList` ni se asigna.
+* Al cargar la compra (`:1818-1822`) se busca el comprobante solo en `vm.comprobanteList` (la tabla `comprobantecompra` no tiene «Sin comprobante»): `vm.compra.comprobante` queda vacío.
+* Al guardar, `fnActualizarCompra` hace `vm.compra.compra_tipodoc = vm.compra.comprobante.comprobantecompra_descripcion;` (`:1540`) → `TypeError: Cannot read properties of null`.
+
+**Impacto:** el botón Guardar falla sin mensaje; la compra sin comprobante no se puede corregir desde la pantalla. Detectado por el bot el 2026-11-16.
+
+## Observación — `guardarAvanceCompra` responde `data = null`
+
+`CompraLogisticaController.php:388` hace `$objAvanceCompra->avancecompra_id = $objAvanceCompra->registrar();`, pero `AvancecompraLogistica::registrar()` no devuelve nada: la plantilla se guarda y la respuesta trae `data = null`. La pantalla no usa ese id (tras guardar cierra la pestaña), así que no es visible para el usuario; el bot busca la plantilla por su nombre.
+
 ## F34 — Primera compra sin historial: OK (sin bugs)
 
 Sin división por cero (todo guardado), variación inaugural `0` o `+100 %` auditable, costo 0 excluido del PPP futuro. Solo informativo: fallback multimoneda sin tipo de cambio (sugiere precio en otra moneda sin convertir).

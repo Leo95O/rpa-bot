@@ -142,6 +142,35 @@ async function lineaProducto(estado: EstadoSuite, nombre: string, cantidad: numb
   return id !== null && pres ? { itemTipo: 2, itemId: id, presentacionId: pres, cantidad, costo, descripcion: nombre } : null;
 }
 
+/** Serie, número y líneas guardadas de una compra, para editarla por API con los mismos datos. */
+async function compraGuardada(compraId: number): Promise<{ serie: string; numero: string; lineas: Array<{ id: number }> }> {
+  const cab = (await consultar<{ s: string; n: string }>('SELECT compra_seriedoc AS s, compra_nrodoc AS n FROM compra WHERE compra_id = ?', [compraId]))[0];
+  const lineas = await consultar<{ id: number }>('SELECT detallecompra_id AS id FROM detallecompra WHERE compra_id = ? ORDER BY detallecompra_id', [compraId]);
+  return { serie: cab ? String(cab.s) : '', numero: cab ? String(cab.n) : '', lineas };
+}
+
+/**
+ * La semilla SQL crea los productos sin producto general, y la búsqueda de productos exige
+ * pg.productogeneral_estado = '1' (ProductoLogisticaDB::busquedaSensitivaProducto). Se completa en la BD QA
+ * para que el producto se pueda buscar como uno creado por la pantalla.
+ */
+async function asegurarProductoBuscable(nombre: string): Promise<void> {
+  const p = (await consultar<{ id: number; pg: number | null }>('SELECT producto_id AS id, productogeneral_id AS pg FROM producto WHERE producto_descripcion = ? LIMIT 1', [nombre]))[0];
+  if (!p || p.pg) return;
+  const c = await conexion();
+  try {
+    const [res] = await c.query(
+      "INSERT INTO productogeneral (productogeneral_descripcion, productogeneral_unidadmedida, productogeneral_esfavorito, productogeneral_restaurante, " +
+        "productogeneral_discoteca, productogeneral_hotel, productogeneral_estado, productogeneral_noconsumible, productogeneral_descripcionplato, " +
+        "productogeneral_escombo, productogeneral_tranformado, productogeneral_checksum) VALUES (?, 'UNIDAD', '0', '1', '0', '0', '1', '0', '', '0', 0, 'QABOT')",
+      [nombre],
+    );
+    await c.query('UPDATE producto SET productogeneral_id = ? WHERE producto_id = ?', [(res as { insertId: number }).insertId, p.id]);
+  } finally {
+    await c.end();
+  }
+}
+
 function aLineaCompra(l: LineaGuia, almacenId: number): LineaDetalle {
   return { itemTipo: l.itemTipo, itemId: l.itemId, presentacionId: l.presentacionId, cantidad: l.cantidad, costo: l.costo, almacenId, afecto: true, descripcion: l.descripcion };
 }
@@ -168,9 +197,12 @@ export const flujoF42: FlujoFn = async (page, ctx, estado) => {
     descripcion: 'Compra de S/ 200 pagada con caja: S/ 100 en efectivo y S/ 100 con tarjeta. El backend crea un egreso por cada medio de pago.',
   });
 
-  const edit = await modificarCompra(page, compra.id!, [{ nombre: 'Arroz QA', insumoId: l.itemId, cantidad: 50, precio: 4 }]);
+  // Por API: la pantalla de edición no trae la caja seleccionada («No se encontro una caja seleccionada»).
+  const g = await compraGuardada(compra.id!);
+  const edit = await compraHelper(page, ctx, [{ ...aLineaCompra(l, ctx.almacenId), detallecompraId: g.lineas[0] ? Number(g.lineas[0].id) : undefined }],
+    { saliodecaja: true, montoEfectivo: 100, montoTarjeta: 100, serie: g.serie, numero: g.numero, actualizarCompraId: compra.id });
   resultados.push({ paso: 'F42.editar sin cambios', ok: edit.ok, esperado: 'actualizada', error: edit.error,
-    descripcion: 'Se abre la compra en edición y se guarda sin cambiar nada.' });
+    descripcion: 'Se vuelve a guardar la compra con los mismos datos (actualizarCompra), como al abrirla en edición y guardar sin cambios.' });
   if (!edit.ok) return resultados;
   const despues = await contar();
   resultados.push({
@@ -199,11 +231,29 @@ export const flujoF43: FlujoFn = async (page, ctx, estado) => {
     descripcion: 'Segunda compra sin comprobante del mismo proveedor: debe aceptarse (no hay número que pueda duplicarse).' });
   if (!a.ok || !b.ok) return resultados;
   estado.compras.set('F43', a.id!);
-  const edit = await modificarCompra(page, a.id!, [{ nombre: 'Arroz QA', insumoId: l.itemId, cantidad: 5, precio: 4 }]);
+  // 1) Desde la pantalla de edición.
+  let pantalla: { ok: boolean; error?: string };
+  try {
+    pantalla = await modificarCompra(page, a.id!, [{ nombre: 'Arroz QA', insumoId: l.itemId, cantidad: 5, precio: 4 }]);
+  } catch (e) {
+    pantalla = { ok: false, error: e instanceof Error ? e.message.split('\n')[0] : String(e) };
+  }
   resultados.push({
-    paso: 'F43.editar compra A (BUG-2)', ok: edit.ok, esperado: 'actualizada', error: edit.error,
-    descripcion: 'Defecto BUG-2: al editar, la pantalla reenvía la serie y el número guardados («-»/«-») y existeCompra (CompraLogisticaValidator.php:695-713) ' +
-      'los compara por igualdad con la otra compra sin comprobante: rechaza la edición como duplicada.',
+    paso: 'F43.editar compra «Sin comprobante» desde la pantalla (BUG-2b, frontend)', ok: pantalla.ok, esperado: 'actualizada', error: pantalla.error,
+    descripcion: 'Defecto del frontend: editarcompra.controller.js declara vm.comprobanteInterno («Sin comprobante», línea 63) pero nunca lo agrega a vm.comprobanteList ' +
+      'ni lo asigna; al cargar la compra no encuentra su comprobante (línea 1818) y al guardar fnActualizarCompra lee vm.compra.comprobante.comprobantecompra_descripcion ' +
+      '(línea 1540) sobre null: «Cannot read properties of null». Una compra sin comprobante no se puede editar desde la pantalla.',
+  });
+
+  // 2) Por API, con la serie y el número que guardó el backend («-»/«-»), como los reenviaría la pantalla.
+  const g = await compraGuardada(a.id!);
+  const api = await compraHelper(page, ctx, [{ ...aLineaCompra(l, ctx.almacenId), detallecompraId: g.lineas[0] ? Number(g.lineas[0].id) : undefined }],
+    { tipodoc: 'Sin comprobante', serie: g.serie, numero: g.numero, actualizarCompraId: a.id });
+  resultados.push({
+    paso: 'F43.editar compra A por API (BUG-2)', ok: api.ok, esperado: 'actualizada', real: `serie/número guardados: «${g.serie}»/«${g.numero}»`, error: api.error,
+    descripcion: 'Defecto BUG-2: el backend guarda «-»/«-» (generarDatosComprobanteInterno, CompraLogistica.php:2477-2483) y existeCompra ' +
+      '(CompraLogisticaValidator.php:695-713) los compara por igualdad: al reenviarlos en la edición choca con la otra compra sin comprobante del mismo proveedor ' +
+      'y la rechaza como duplicada.',
   });
   return resultados;
 };
@@ -353,7 +403,20 @@ export const flujoF46: FlujoFn = async (page, ctx, estado) => {
 };
 
 // F47/F48 — BUG-7 y BUG-8: avance (plantilla) de compra.
+/**
+ * Guarda una plantilla (avance) de compra. guardarAvanceCompra responde data = null al registrar
+ * (CompraLogisticaController.php:388 asigna el retorno vacío de AvancecompraLogistica::registrar), así que el id
+ * se busca por el nombre de la plantilla.
+ */
 async function guardarAvance(page: Page, ctx: ContextoCompra, l: LineaGuia, extra: Record<string, unknown>): Promise<ResultadoOperacion> {
+  const nombre = 'Plantilla QA ' + serieUnica('P');
+  const r = await guardarAvanceApi(page, ctx, l, { ...extra, compra_nombreplantilla: nombre });
+  if (!r.ok || (r.id !== undefined && r.id > 0)) return r;
+  const fila = (await consultar<{ id: number }>('SELECT avancecompra_id AS id FROM avancecompra WHERE avancecompra_nombreplantilla = ? ORDER BY avancecompra_id DESC LIMIT 1', [nombre]))[0];
+  return fila ? { ok: true, id: Number(fila.id) } : { ok: false, error: 'Plantilla guardada pero no encontrada: ' + nombre };
+}
+
+async function guardarAvanceApi(page: Page, ctx: ContextoCompra, l: LineaGuia, extra: Record<string, unknown>): Promise<ResultadoOperacion> {
   return page.evaluate(async (args) => {
     try {
       const Cr = angular.element(document.body).injector().get('CompraResource');
@@ -370,7 +433,8 @@ async function guardarAvance(page: Page, ctx: ContextoCompra, l: LineaGuia, extr
           detallecompra_importe: args.l.cantidad * args.l.costo, detallecompra_afectoimpuestos: true, detallecompra_descripcion: args.l.descripcion,
         }],
       });
-      return { ok: Number(r.tipo) === 1, id: Number(r.data), error: Number(r.tipo) === 1 ? undefined : JSON.stringify(r.mensajes) };
+      const id = Number(r.data);
+      return { ok: Number(r.tipo) === 1, id: Number.isFinite(id) && id > 0 ? id : undefined, error: Number(r.tipo) === 1 ? undefined : JSON.stringify(r.mensajes) };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -484,6 +548,7 @@ export const flujoF50: FlujoFn = async () => {
 // (109-116) que _validarAnulacion sí ejecuta (131-135). Se usa un PRODUCTO (el chequeo solo cubre productos, ver F52).
 export const flujoF51: FlujoFn = async (page, ctx, estado) => {
   const resultados: Veredicto[] = [];
+  await asegurarProductoBuscable('Gaseosa QA');
   const l = await lineaProducto(estado, 'Gaseosa QA', 6, 3);
   if (!l) return falta('F51.maestro', "producto 'Gaseosa QA' con presentación UNIDAD");
   const guia = await registrarGuia(page, ctx, l, haceDias(1));
@@ -503,6 +568,7 @@ export const flujoF51: FlujoFn = async (page, ctx, estado) => {
 // insumos está comentada (316-323).
 export const flujoF52: FlujoFn = async (page, ctx, estado) => {
   const resultados: Veredicto[] = [];
+  await asegurarProductoBuscable('Gaseosa QA');
   const li = await lineaInsumo(page, estado, 'Arroz QA', 5, 4);
   const lp = await lineaProducto(estado, 'Gaseosa QA', 5, 3);
   if (!li || !lp) return falta('F52.maestros', "insumo 'Arroz QA' y producto 'Gaseosa QA'");
