@@ -1,6 +1,12 @@
 # Bugs de Guía de Compra — Registro Técnico (doble nivel)
 
 > Cada ficha se explica dos veces: **a nivel usuario** (qué ve y qué le pasa a alguien operando la pantalla) y **a nivel técnico** (qué línea de código lo causa y por qué). Estado: **reportados, no corregidos**.
+>
+> **Verificación por el bot (2026-11-16, `src/e2e/compras/flujosDefectos.ts`):** G1 → F50, G2 → F51, G3 → F52 (con control de producto), G4 → F53. Revisados contra `master_php85`:
+> - G1: literales en GuiaLogisticaController.php:100 y :395, pero ningún request llega a esas ramas (el validador frena antes y los errores de BD salen como HTTP). F50 lo verifica leyendo el código del backend (`WEBAPP_PATH`, por defecto `C:/laragon/www/webapp`).
+> - G2: comprobación comentada en GuiaLogisticaValidator.php:109-116. Además, la rama de más de 90 días al modificar usa `$this->_STATUS_VALIDATOR` (propiedad equivocada): agrega el mensaje pero no bloquea.
+> - G3: GuiaLogisticaValidator.php:300 (solo productos); rama de insumos comentada en 316-323.
+> - G4: GuiaLogistica.php:438-452; `GuiaLogisticaDB::desvincularCompra` existe pero no se usa al anular.
 
 ---
 

@@ -1,6 +1,11 @@
 # Bugs de Orden de Compra — Registro Técnico
 
 > Alcance: defectos reales encontrados auditando código (`C:\xampp\htdocs\webapp` + `logisticaview`) durante el mapeo de OC. Cada ficha trae ubicación exacta, causa, impacto, reproducción paso a paso, verificabilidad por bot y fix sugerido. Estado: **reportados, no corregidos** (el bot y los docs asumen el comportamiento con bug).
+>
+> **Verificación por el bot (2026-11-16, `src/e2e/compras/flujosDefectos.ts`), revisado contra `master_php85`:**
+> - **Bug A → F54. El síntoma cambió:** `OrdenservicioLogistica::MODIFICAR_ORDENSERVICIO` vale 1, igual que la constante de OC, así que corre el validador de OC y ya no sale el mensaje de «orden de servicio». Pero `validarEstadoParaEdiccion` (OrdencompraLogisticaValidator.php:106-110) carga la OC con `OrdenservicioLogistica::getById`, desde la tabla `ordenservicio`: no la encuentra y **una OC aprobada se puede editar** por API.
+> - **Bug B → F55.** Vigente (OrdencompraLogisticaController.php:629). El permiso 121 se lee de `permisosusuario` (no de `rolpermisologistica`); en la BD QA el admin lo tiene en 0, así que F55 lo activa durante la prueba y lo restaura.
+> - La postura «el bot no explota estos defectos» (más abajo) se revisó el 2026-11-16 a pedido del usuario: ahora se verifican por API.
 
 ---
 

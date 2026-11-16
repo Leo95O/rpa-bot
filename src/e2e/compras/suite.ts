@@ -7,6 +7,7 @@ import { ContextoCompra, EstadoSuite } from './tipos';
 import { limpiarTransaccionales, seedMaestros, leerConfigs, leerIgvFiscalizado, leerTipoCambio } from './seed';
 import { FLUJOS, FlujoFn } from './flujos';
 import { FLUJOS_MANUAL } from './flujosManual';
+import { FLUJOS_DEFECTOS } from './flujosDefectos';
 import { Veredicto } from './oraculo';
 import { generarHtmlReporte, generarPdfReporte, resumirReporte } from '../../reporte';
 import { FilaReporte } from '../../types';
@@ -24,7 +25,7 @@ export async function ejecutarFlujo(
   estado: EstadoSuite,
   flujoId: string,
 ): Promise<SuiteResult> {
-  const flujo = FLUJOS[flujoId] || FLUJOS_MANUAL[flujoId];
+  const flujo = FLUJOS[flujoId] || FLUJOS_MANUAL[flujoId] || FLUJOS_DEFECTOS[flujoId];
   if (!flujo) throw new Error(`Flujo ${flujoId} no existe`);
   let veredictos: Veredicto[];
   try {
@@ -49,7 +50,7 @@ export async function ejecutarFlujo(
 
 export async function ejecutarSuite(
   page: Page,
-  flujoIds: string[] = [...Object.keys(FLUJOS), ...Object.keys(FLUJOS_MANUAL)],
+  flujoIds: string[] = [...Object.keys(FLUJOS), ...Object.keys(FLUJOS_MANUAL), ...Object.keys(FLUJOS_DEFECTOS)],
   maestros: Map<string, number> = new Map(),
 ): Promise<SuiteResult[]> {
   const estado: EstadoSuite = {
@@ -154,7 +155,7 @@ async function main(): Promise<void> {
   await asegurarMaestroCarne(page, maestros);
 
   const flujos = process.argv.slice(2);
-  const ids = flujos.length > 0 ? flujos : [...Object.keys(FLUJOS), ...Object.keys(FLUJOS_MANUAL)];
+  const ids = flujos.length > 0 ? flujos : [...Object.keys(FLUJOS), ...Object.keys(FLUJOS_MANUAL), ...Object.keys(FLUJOS_DEFECTOS)];
   console.log(`\nEjecutando flujos: ${ids.join(', ')}`);
 
   const estado: EstadoSuite = {

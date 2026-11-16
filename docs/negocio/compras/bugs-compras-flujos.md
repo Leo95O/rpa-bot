@@ -1,6 +1,20 @@
 # Bugs de Compras — Flujos NO mapeados (reporte aparte)
 
 > **Decisión 2026-10-16:** estos flujos tienen bugs reales que los hacen inadecuados para el bot E2E (el bot audita cálculos correctos, no explota defectos). Se documentan aquí para el equipo de desarrollo. **No se incluyen en `flujos-e2e.md`.**
+>
+> **Actualización 2026-11-16:** el bot ahora verifica estos defectos en `src/e2e/compras/flujosDefectos.ts` (F42-F49). Cada flujo comprueba el comportamiento correcto y sale en FALLO mientras el defecto exista. Revisados contra `master_php85`:
+>
+> | Defecto | Flujo | Estado en el código actual |
+> |---|---|---|
+> | BUG-1 | F42 | Vigente el punto 3 (al editar se borra solo el primer egreso). El punto 1 está frenado: con cuotas pagadas la edición se rechaza («La compra es al crédito y tiene cuotas pagadas», CompraLogisticaValidator.php:180-182). El punto 4 solo ocurre al pasar de SÍ a NO con cajas cerradas. |
+> | BUG-2 | F43 | Vigente. El caso visible es **editar** una compra «Sin comprobante» cuando hay otra del mismo proveedor: se reenvía «-»/«-» y choca (existeCompra, validator:695-713). |
+> | BUG-3 | F44 | Vigente: inicializar() y registrar() no completan compra_fechatributacion. |
+> | BUG-4 | F17, F26 | Ya verificado antes. |
+> | BUG-5 | F45 | Vigente; el endpoint ni recibe almacén. |
+> | BUG-6 | F46 | Vigente (CompraLogistica.php:3778-3782). |
+> | BUG-7 | F47 | Vigente (CompraLogistica.php:2723 y 2777). |
+> | BUG-8 | F48 | Vigente; avancecompra y detalleavancecompra no tienen columnas para flete ni tipo de cambio. |
+> | BUG-9 | F49 | **Diagnóstico corregido:** la compra que factura una guía no hace entrada propia (CompraLogistica.php:275-278), así que no hay «2 ingresos vivos». El defecto real: anular esa compra con «devolver stock» no devuelve nada; el stock de la guía sigue y la guía queda activa y desvinculada. |
 
 ---
 

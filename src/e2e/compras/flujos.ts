@@ -141,10 +141,17 @@ export async function compraHelper(
     conRetencion?: boolean;
     montoRetencion?: number;
     saliodecaja?: boolean;
+    /** Tipo de comprobante (por defecto 'FACTURA'); 'Sin comprobante' = COMPROBANTE_INTERNO. */
+    tipodoc?: string;
+    /** Serie y número explícitos (por defecto únicos). '' replica lo que manda nuevacompra con «Sin comprobante». */
+    serie?: string;
+    numero?: string;
+    /** true = no envía compra_fechatributacion (cliente que no conoce el campo). */
+    sinFechaTributacion?: boolean;
   } = {},
 ): Promise<ResultadoOperacion> {
-  const serie = serieUnica('C');
-  const numero = serieUnica('C');
+  const serie = opts.serie ?? serieUnica('C');
+  const numero = opts.numero ?? serieUnica('C');
   const tot = calcularTotales(
     lineas.map((l) => ({ cantidad: l.cantidad, costo: l.costo, afecto: l.afecto, descuento: l.descuento || 0 })),
     ctx.igv,
@@ -160,8 +167,8 @@ export async function compraHelper(
         moneda_id: args.monedaId,
         compra_tipocambio: args.tipoCambio,
         compra_fecha: args.fecha,
-        compra_fechatributacion: args.fecha,
-        compra_tipodoc: 'FACTURA',
+        ...(args.sinFechaTributacion ? {} : { compra_fechatributacion: args.fecha }),
+        compra_tipodoc: args.tipodoc || 'FACTURA',
         compra_seriedoc: args.serie,
         compra_nrodoc: args.numero,
         compra_ordencompraList: args.ordenCompraIds ? args.ordenCompraIds : (args.ordenCompraId ? [args.ordenCompraId] : []),
@@ -232,6 +239,7 @@ export async function compraHelper(
     montoEfectivo: opts.montoEfectivo, montoTarjeta: opts.montoTarjeta, montoCheque: opts.montoCheque,
     conRetencion: opts.conRetencion, montoRetencion: opts.montoRetencion, saliodecaja: opts.saliodecaja,
     esAlCredito: opts.esAlCredito,
+    tipodoc: opts.tipodoc, sinFechaTributacion: !!opts.sinFechaTributacion,
   });
 }
 

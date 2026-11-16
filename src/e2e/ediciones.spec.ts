@@ -23,7 +23,7 @@ const F = 'Bloque 8: Ediciones';
 /** Edita precio pactado de una OC (POST ordencompra/actualizarOrdencompra).
  * El detalle se lee por SQL: NO existe endpoint REST de detalle OC
  * (ordencompra/detalle/* da 404 y dejaba productos=[] sin actualizar nada). */
-async function actualizarOC(
+export async function actualizarOC(
   page: Page, ocId: number, precio: number,
 ): Promise<{ ok: boolean; error?: string; raw?: unknown }> {
   const endpoint = esperarEndpoint(page, 'ordencompra/actualizarOrdencompra', 45000).catch(() => null);

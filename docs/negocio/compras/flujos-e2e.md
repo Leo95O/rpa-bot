@@ -106,6 +106,26 @@ Maestro: `Pollo Manual QA`, control en Unidad, presentación de compra `Kilo` (K
 - **F40. NC sobre compra que canjeó guía** (F31): 1 Kilo con manual 1 → sale 1.
 - **F41. Compra mixta** (Base 4 @10 + Kilo 2 @10 manual 3): NC de las dos líneas sin manual en la manual → rechazada; con manual 1 → salen 2 (1 por línea).
 
+### F42-F55. Verificación de defectos conocidos (`src/e2e/compras/flujosDefectos.ts`)
+Cada flujo comprueba el comportamiento correcto; mientras el defecto exista, su paso clave sale en FALLO. Fichas: `bugs-compras-flujos.md`, `bugs-guia-compra.md`, `bugs-orden-compra.md`.
+
+| Flujo | Defecto | Qué hace el bot | Correcto esperado |
+|---|---|---|---|
+| F42 | BUG-1 | Compra con caja (efectivo 100 + tarjeta 100) y edición sin cambios | Siguen 2 egresos activos |
+| F43 | BUG-2 | Dos compras «Sin comprobante» del mismo proveedor y edición de una | Ambas se registran y la edición se acepta |
+| F44 | BUG-3 | Compra sin enviar compra_fechatributacion | Queda igual a compra_fecha |
+| F45 | BUG-5 | Carne QA en Principal @21 y luego en Producción @33; último precio | 21 para el Principal |
+| F46 | BUG-6 | Dos OS aprobadas; compra de servicio con A editada a B | A vuelve a aprobada con compra_id NULL |
+| F47 | BUG-7 | Plantilla 4 @10; leerla | item_costo = 10 |
+| F48 | BUG-8 | Plantilla con flete 15 y TC 3.8; leerla | Se conservan |
+| F49 | BUG-9 | Guía 7 u + compra que la factura; anular la compra devolviendo stock | Stock vuelve al previo |
+| F50 | G1 | Lee GuiaLogisticaController.php | Sin «crear tu Compra» ni «crear tu actualizar» |
+| F51 | G2 | Guía de producto de ayer + merma de hoy; modificar la guía | Rechazada |
+| F52 | G3 | Guía de insumo de ayer + merma; anular (control con producto) | Rechazada en ambos |
+| F53 | G4 | Guía + compra que la factura; anular la guía | Rechazada, o compra_id limpio |
+| F54 | OC-A | OC aprobada; editarla | Rechazada |
+| F55 | OC-B | OC aceptada; reevaluarla como rechazada (activa el permiso 121 y lo restaura) | Rechazada; evaluación sigue en 1 |
+
 No cubierto: NC originada en una NC de venta (único caso de UI con `retornostock = NO`; requiere una venta), devolución en otra presentación y NC con la config 197 apagada.
 
 Cada paso de F28-F41 y del Bloque 9 lleva su `descripcion` (FilaReporte/Veredicto), que el HTML y el PDF muestran en la columna Descripción en lugar del texto genérico de `reporte.ts`.
